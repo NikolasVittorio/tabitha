@@ -5,7 +5,7 @@ from uagents import Agent, Context
 from gate.browser import Blocked, open_html, open_page
 from gate.fixer import fix
 from gate.models import FixRequest, FixResult, ScanRequest, ScanResult, WalkRequest, WalkResult
-from gate.scanner import scan
+from gate.scanner import aria_tree, scan
 from gate.walker import walk
 
 _KNOWN = {"too_large", "scan_tampered"}  # our own ValueError codes
@@ -35,10 +35,12 @@ def make_scanner(seed: str, lead_addr: str) -> Agent:
                 html = req.html
                 async with open_html(html, req.url) as page:
                     findings, tested = await scan(page)
+                    tree = await aria_tree(page)
             else:
                 async with open_page(req.url) as (page, html):
                     findings, tested = await scan(page)
-            res = ScanResult(job_id=req.job_id, findings=findings, tested=tested, html=html, error=None)
+                    tree = await aria_tree(page)
+            res = ScanResult(job_id=req.job_id, findings=findings, tested=tested, html=html, error=None, tree=tree)
         except Exception as e:
             res = ScanResult(job_id=req.job_id, findings=[], tested=[], html=None, error=error_code(e))
         await ctx.send(sender, res)

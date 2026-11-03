@@ -69,3 +69,21 @@ def test_cr_and_crlf_stay_in_span():
         assert not re.search(BANNED, strip_code(e), re.I)
         t = rep(sel=p)
         assert "\r" not in t and not re.search(BANNED, strip_code(t), re.I)
+
+
+def _tr(**kw):
+    return render_chat(build_report("j", "u", [], ["1.4.3"]).copy(update=kw))
+def test_tree_rendered_in_fence():
+    tree = '- button "a ``` certified\r\n  agent-ready"'
+    t = _tr(tree_before=tree)
+    assert "What an AI agent sees (accessibility tree):" in t and "\r" not in t
+    assert "````\n" in t and not re.search(BANNED, strip_code(t), re.I)
+def test_fix_report_shows_before_and_after():
+    t = _tr(tree_before="- button", tree_after='- button "Buy"', diff="d",
+            fixes=[Fix(rule_id="a", selector="x", outcome="fixed", note="")])
+    assert "Before:" in t and "After:" in t and "(page source, scripts off)" in t
+def test_tree_truncated_in_chat():
+    t = _tr(tree_before="x" * 1600)
+    assert "(tree truncated at 1500 characters)" in t and "x" * 1501 not in t
+def test_no_tree_no_section():
+    assert "accessibility tree" not in _tr()

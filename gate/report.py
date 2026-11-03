@@ -23,6 +23,18 @@ def _code(v: str) -> str:
     return f"{t} {v} {t}"
 
 
+TREE_CHAT_CHARS = 1500
+
+
+def _tree(label: str, tree: str) -> list[str]:
+    tree = "\n".join(tree.splitlines())  # CR/CRLF/LF all become LF: no bare CR in the fence
+    d = tree[:TREE_CHAT_CHARS]
+    t = _ticks(d, 3)
+    head = [label] if label else []
+    return ["\n".join(head + [t, d, t])] + (
+        [f"(tree truncated at {TREE_CHAT_CHARS} characters)"] if len(tree) > TREE_CHAT_CHARS else [])
+
+
 def build_report(job_id, url, findings, tested, fixes=[], diff="", error=None, focus_count=0, receipt=None) -> Report:
     v = sum(f.status in ("fail", "needs_author") for f in findings)
     un = untested(tested)
@@ -45,6 +57,12 @@ def render_chat(r: Report, max_diff_chars: int = 8000) -> str:
     out.append(f"Needs review: {sum(f.status == 'needs_review' for f in r.findings)}")
     k = sum(f.source == "walker" and f.status == "fail" for f in r.findings)
     out.append(f"Keyboard: {r.focus_count} focus stops walked, {k} keyboard issues")
+    if r.tree_before and r.tree_after:
+        out.append("What an AI agent sees, before and after the fixes (page source, scripts off):")
+        out += _tree("Before:", r.tree_before) + _tree("After:", r.tree_after)
+    elif r.tree_before:
+        out.append("What an AI agent sees (accessibility tree):")
+        out += _tree("", r.tree_before)
     if r.note:
         out.append(f"Note: {r.note}")
     if r.fixes:

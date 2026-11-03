@@ -7,7 +7,15 @@ from gate.models import Finding
 from gate.wcag import from_axe_tags
 
 AXE_SRC = (Path(__file__).parent / "vendor" / "axe.min.js").read_text("utf-8")
+TREE_CAP = 20_000
 TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
+
+
+async def aria_tree(page: Page) -> str:
+    try:
+        return (await page.locator("body").aria_snapshot(timeout=5000))[:TREE_CAP]  # 5s: must not eat the context's 30s deadline
+    except Exception:  # ponytail: the tree is a nicety, never let it fail the scan
+        return ""
 
 
 async def scan(page: Page) -> tuple[list[Finding], list[str]]:

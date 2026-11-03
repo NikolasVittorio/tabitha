@@ -13,7 +13,7 @@ Demo page: `https://<gh-pages>/demo/broken.html`. Demo line: "Before: 'button. b
 | 0:25 | Chat with the lead in ASI:One: `fix <url>` | "A builder agent, or a person, sends our gate a URL." |
 | 0:40 | Reply line: keyboard walk result: N focus stops, keyboard trap found | "It walks the page like a keyboard user. Here focus gets trapped." |
 | 0:55 | Patch diff with per-element fix outcomes, then the line "N criteria need human review" | "The fixes are re-checked on the page source so nothing gets worse; image alt text needs the author. And it tells you how many criteria still need a human." |
-| 1:20 | Same page. [AUDIO: after] | "After: 'Buy now, button. image.'" |
+| 1:20 | Same page. [AUDIO: after] | "After: 'Buy now, button. image.' The report's 'What an AI agent sees' section shows the same before and after as an accessibility tree." |
 | 1:35 | Receipt and TEST FET payment reference | "You get a signed log of exactly what was tested, bought with test tokens on Dorado." |
 | 1:50 | End card: address, repo | "Automated tools catch less than half of accessibility problems, so we list what was not tested. A11y Gate." |
 
@@ -24,7 +24,7 @@ Demo page: `https://<gh-pages>/demo/broken.html`. Demo line: "Before: 'button. b
 3. **Step 1: broken page (1:15-1:45).** Open `demo/broken.html`. [AUDIO: before]
 4. **Step 2: keyboard walk (1:45-2:15).** Run `check <url>`. Show the reply line: keyboard walk result: N focus stops, keyboard trap found. Mention logical order and obscured focus are reported as needing review, never as failures.
 5. **Step 3: patch (2:15-3:00).** Run `python -m agents.demo_buyer <url>`. Show the payment request, the memo equal to the reference, the commit. Then the patch with per-element fix outcomes, and "N criteria need human review". Show one fix labelled "verify wording" and one `needs_author` item (image alt text).
-6. **Step 4: audio after (3:00-3:20).** [AUDIO: after]
+6. **Step 4: audio after (3:00-3:20).** [AUDIO: after] Point at the "What an AI agent sees, before and after the fixes" section of the reply (Before and After trees).
 7. **Step 5: receipt and payment (3:20-4:00).** Show the Automated Scan Log, verify the signature against the key published in the README, show the Dorado explorer tx and the reference. State it is valid for that exact input at that time only.
 8. **Honest limits (4:00-4:30).** Show the disclaimer and the untested criteria. Automated coverage is roughly 40% at best (the GOV.UK GDS audit's best tool). Show `check http://169.254.169.254/` refused, and `check https://example.com` returning no automated violations with the same disclaimer.
 9. **Close (4:30-4:45).** Address, repo, badges, how a builder agent calls us.

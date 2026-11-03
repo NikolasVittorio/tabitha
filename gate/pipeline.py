@@ -20,13 +20,13 @@ def _fails(findings: list[Finding]) -> set[tuple[str, str]]:
 
 
 async def _gate(job_id: str, url: str, html: str, findings: list[Finding], scan: ScanFn, fix: FixFn
-                ) -> tuple[list[Fix], str]:
-    """Apply fixes, keep only rules whose rescan adds no new (rule, selector) fail. Returns (fixes, diff)."""
+                ) -> tuple[list[Fix], str, str, str]:
+    """Apply fixes, keep only rules whose rescan adds no new (rule, selector) fail. Returns (fixes, diff, tree_before, tree_after)."""
     axe = [f.copy(update={"data": {**f.data, "url": url}}) if f.rule_id == "document-title" else f
            for f in findings if f.source == "axe"]
     cand = sorted({f.rule_id for f in axe if f.status in ("fail", "needs_author")})
     if not cand:
-        return [], ""
+        return [], "", "", ""
     # Like-for-like baseline: the original html scanned the same way as every rescan (about:blank,
     # JS off), so neither page scripts nor the render mode can fake a drop in violations.
     b = await scan(ScanRequest(job_id=f"{job_id}:base", url=url, html=html))
@@ -35,7 +35,7 @@ async def _gate(job_id: str, url: str, html: str, findings: list[Finding], scan:
     base = _fails(b.findings)
     n = count(1)
 
-    async def attempt(rules: list[str]) -> tuple[FixResult, set, bool]:
+    async def attempt(rules: list[str]) -> tuple[FixResult, set, bool, str]:
         i = next(n)  # sub-job ids keep every rescan off the first scan's pending key
         fr = await fix(FixRequest(job_id=f"{job_id}:fix{i}", html=html, findings=axe, rules=rules))
         if not fr.fixes:  # the fixer subagent signals failure with no fixes at all
@@ -44,18 +44,18 @@ async def _gate(job_id: str, url: str, html: str, findings: list[Finding], scan:
         if re.error:
             raise RuntimeError("rescan failed")
         after = _fails(re.findings)
-        return fr, after, after <= base  # any new (rule, selector) fail rejects
+        return fr, after, after <= base, re.tree  # any new (rule, selector) fail rejects
 
-    fr, after, ok = await attempt(cand)
+    fr, after, ok, tree = await attempt(cand)
     fixes = fr.fixes
     if not ok:
         accepted, fixes = [], []
-        fr, after = FixResult(job_id=job_id, patched_html=html, fixes=[]), base
+        fr, after, tree = FixResult(job_id=job_id, patched_html=html, fixes=[]), base, b.tree
         for r in cand[:FALLBACK_CAP]:
-            t_fr, t_after, t_ok = await attempt(accepted + [r])
+            t_fr, t_after, t_ok, t_tree = await attempt(accepted + [r])
             if t_ok:
                 accepted.append(r)
-                fr, after = t_fr, t_after
+                fr, after, tree = t_fr, t_after, t_tree
             else:
                 fixes += [x.copy(update={"outcome": "regressed", "note": "rescan found new or more violations"})
                           for x in t_fr.fixes if x.rule_id == r]
@@ -66,7 +66,7 @@ async def _gate(job_id: str, url: str, html: str, findings: list[Finding], scan:
              if x.outcome == "fixed" and (x.rule_id, x.selector) in after else x for x in fixes]
     diff = "".join(difflib.unified_diff(html.splitlines(True), fr.patched_html.splitlines(True),
                                         "original", "patched"))
-    return fixes, diff
+    return fixes, diff, b.tree, tree
 
 
 async def run_gate(job_id: str, url: str, scan: ScanFn, walk: WalkFn, fix: FixFn | None) -> Report:
@@ -79,13 +79,13 @@ async def run_gate(job_id: str, url: str, scan: ScanFn, walk: WalkFn, fix: FixFn
         return build_report(job_id, url, [], [], error="internal_error")
     if s.error or w.error:
         return build_report(job_id, url, [], [], error=s.error or w.error)
-    fixes, diff, note = [], "", ""
+    fixes, diff, note, tb, ta = [], "", "", s.tree, ""
     if fix is not None and s.html is not None:
         try:
-            fixes, diff = await _gate(job_id, url, s.html, s.findings, scan, fix)
+            fixes, diff, tb, ta = await _gate(job_id, url, s.html, s.findings, scan, fix)
         except Exception:  # any rescan/fixer failure: still return the scan report
-            fixes, diff, note = [], "", "fix step unavailable"
+            fixes, diff, note, tb, ta = [], "", "fix step unavailable", s.tree, ""
     r = build_report(job_id, url, w.findings + s.findings, sorted(set(s.tested) | set(w.tested)),
                      fixes=fixes, diff=diff, focus_count=len(w.focus_path))
-    return r.copy(update={"note": note,
+    return r.copy(update={"note": note, "tree_before": tb, "tree_after": ta,
                           "input_sha256": hashlib.sha256(s.html.encode()).hexdigest() if s.html else ""})

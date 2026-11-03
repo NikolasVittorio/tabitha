@@ -131,3 +131,34 @@ async def test_fixed_is_per_selector():
                                          fixes=[Fix(rule_id="color-contrast", selector=s, outcome="fixed", note="") for s in ("#p1", "#p2")])
     r = await run_gate("j", "https://e.com", scan, walk, fix)
     assert {f.selector: f.outcome for f in r.fixes} == {"#p1": "fixed", "#p2": "not_fixed"}
+
+
+def _tree_run(fix_fn, rescan_fails):
+    async def scan(r):
+        if r.html is None:
+            return ScanResult(job_id=r.job_id, findings=[F("a")], tested=[], html="<p>0</p>", error=None, tree="- button")
+        if r.job_id.endswith(":base"):
+            return ScanResult(job_id=r.job_id, findings=[F("a")], tested=[], html=r.html, error=None, tree="B")
+        return ScanResult(job_id=r.job_id, findings=rescan_fails, tested=[], html=r.html, error=None, tree="A")
+    async def walk(r): return WalkResult(job_id=r.job_id, findings=[], focus_path=[], tested=[], error=None)
+    return run_gate("j", "https://e.com", scan, walk, fix_fn)
+
+
+async def _fix_a(req):
+    return FixResult(job_id=req.job_id, patched_html=req.html + "A",
+                     fixes=[Fix(rule_id=x, selector="x", outcome="fixed", note="") for x in req.rules])
+
+
+async def test_free_scan_carries_tree():
+    r = await _tree_run(None, [])
+    assert r.tree_before == "- button" and r.tree_after == ""
+
+
+async def test_fix_trees_are_baseline_and_kept_rescan():
+    r = await _tree_run(_fix_a, [])
+    assert (r.tree_before, r.tree_after) == ("B", "A")
+
+
+async def test_rejected_fix_has_no_false_after_tree():
+    r = await _tree_run(_fix_a, [F("a"), F("new")])
+    assert r.tree_after == r.tree_before == "B"
