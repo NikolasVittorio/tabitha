@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Hostile</title></head>
+<body>
+  <a href="#a" style="outline:none">One</a>
+  <a href="#b" style="outline:none">Two</a>
+  <script>
+    // Claims nothing is ever focused, and plants the walker's old helper names.
+    Object.defineProperty(Document.prototype, "activeElement", {get() { return document.body; }});
+    window.__a11yPath = () => "html";
+    window.__a11yTargets = () => [];
+    window.__a11yModal = () => null;
+  </script>
+</body>
+</html>
