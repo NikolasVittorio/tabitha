@@ -24,7 +24,7 @@ _SHOWN = "const shown = el => el.checkVisibility({visibilityProperty: true}) && 
 # Expected Tab stops. A named radio group (same name, same form) is ONE stop: the checked radio, else the first.
 _TARGETS = r"""const targets = root => {
   const all = [...root.querySelectorAll('a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])')]
-    .filter(el => el.tabIndex >= 0 && !el.matches(':disabled') && !el.closest('[inert],[hidden]') && shown(el));
+    .filter(el => el.tabIndex >= 0 && !el.matches(':disabled') && !el.closest('[inert]') && shown(el));  // CSS can override [hidden]; shown() judges rendering
   const radio = el => el.localName === 'input' && el.type === 'radio' && el.name;
   return all.filter(el => {
     if (!radio(el)) return true;

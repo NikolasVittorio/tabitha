@@ -24,7 +24,7 @@ async def test_clean_has_no_fails(http_server):
 async def test_forged_focus_is_unverifiable(http_server):
     r, _, _ = await ids(http_server, "hostile.html")
     assert r.get("walk-unverifiable") == "needs_review"
-@pytest.mark.parametrize("name", ["trap-first.html", "loop.html"])
+@pytest.mark.parametrize("name", ["trap-first.html", "loop.html", "loop-hidden-override.html"])
 async def test_trap_on_first_element_and_two_element_loop(http_server, name):
     r, _, _ = await ids(http_server, name)
     assert r.get("kbd-trap") == "fail"
