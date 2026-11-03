@@ -3,7 +3,7 @@
 ![innovationlab](https://img.shields.io/badge/innovationlab-3D8BD3)
 ![hackathon](https://img.shields.io/badge/hackathon-5F43F1)
 
-AI agents are shipping websites at machine speed, and most of those pages break for people who use screen readers or keyboards. Our agent is a pre-ship gate other agents hire. Send a URL and it scans the page, walks it like a keyboard user, applies fixes that are re-checked to make sure nothing got worse, and returns a signed log of exactly what was tested. It's also honest about what wasn't tested: it never claims [conformance], because automated tools catch less than half of accessibility problems. Builder agents ship better pages, and disabled users get sites that work.
+AI agents are shipping websites at machine speed, and most of those pages break for people who use screen readers or keyboards. Our agent is a pre-ship gate other agents hire. Send a URL and it scans the page, walks it like a keyboard user, applies fixes that are re-checked to make sure nothing got worse, and returns a signed log of exactly what was tested. It's also honest about what wasn't tested: it never claims a page meets the standard, because automated tools catch less than half of accessibility problems. Builder agents ship better pages, and disabled users get sites that work.
 
 ## The problem
 

@@ -81,10 +81,15 @@ expect_reachable() {  # expect_reachable <probe args...>
   esac
 }
 
-if nft list chain inet a11y_egress output 2>/dev/null | grep -q 'policy drop;'; then
-  pass "nftables chain inet a11y_egress output loaded with policy drop"
+if nft list chain inet a11y_egress output 2>/dev/null | grep -Eq "meta skuid (\"?$APP_USER\"?|$APP_UID) goto app_out"; then
+  pass "output chain sends the app uid to app_out"
 else
-  fail "nftables chain inet a11y_egress output missing or not policy drop"
+  fail "output chain missing the app uid goto app_out rule"
+fi
+if nft list chain inet a11y_egress app_out 2>/dev/null | grep -v '^\s*}' | grep -v '^\s*$' | tail -n 1 | grep -qx '\s*drop'; then
+  pass "app_out ends in an explicit drop"
+else
+  fail "app_out missing or does not end in drop"
 fi
 
 for a in "${BLOCKED_V4[@]}" "${BLOCKED_V6[@]}"; do expect_blocked "$a" 80; done

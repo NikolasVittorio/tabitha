@@ -13,8 +13,8 @@ APP_GID=$(id -g "$APP_USER")
 dns_rules=""
 for ns in $(awk '$1 == "nameserver" {print $2}' /etc/resolv.conf); do
   case "$ns" in
-    *:*) dns_rules+="    meta skuid $APP_UID ip6 daddr $ns udp dport 53 accept"$'\n' ;;
-    *)   dns_rules+="    meta skuid $APP_UID ip daddr $ns udp dport 53 accept"$'\n' ;;
+    *:*) dns_rules+="    ip6 daddr $ns udp dport 53 accept"$'\n' ;;
+    *)   dns_rules+="    ip daddr $ns udp dport 53 accept"$'\n' ;;
   esac
 done
 if [ -z "$dns_rules" ]; then
@@ -22,7 +22,9 @@ if [ -z "$dns_rules" ]; then
   exit 1
 fi
 
-# Default drop for the app uid: it may only resolve DNS and open TCP 80/443 to public
+# Default drop for the app uid only (chain app_out). The base chain stays policy accept so
+# socketless kernel packets (SYN-ACKs from request sockets, RSTs) used by fly ssh/proxy
+# are never caught. The app uid may only resolve DNS and open TCP 80/443 to public
 # addresses. Every dependency host in the installed packages uses 443: agentverse.ai
 # (mailbox, Almanac API), grpc-dorado.fetch.ai and grpc-fetchhub.fetch.ai (cosmpy
 # grpc+https, default port 443). No other port is needed.
@@ -37,19 +39,24 @@ table inet a11y_egress
 delete table inet a11y_egress
 table inet a11y_egress {
   chain output {
-    type filter hook output priority 0; policy drop;
-    meta skuid != $APP_UID accept
+    type filter hook output priority 0; policy accept;
+    meta skuid $APP_UID goto app_out
+  }
+  chain app_out {
     ct state established,related accept
 $dns_rules
     ip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.0.2.0/24, 192.168.0.0/16, 198.18.0.0/15, 198.51.100.0/24, 203.0.113.0/24, 224.0.0.0/4, 240.0.0.0/4, 255.255.255.255/32 } drop
     ip6 daddr { ::/128, ::1/128, ::ffff:0:0/96, 64:ff9b::/96, 64:ff9b:1::/48, 100::/64, 2001:db8::/32, 2002::/16, fc00::/7, fe80::/10, ff00::/8 } drop
     tcp dport { 80, 443 } accept
+    drop
   }
 }
 EOF
 
-# Fail closed: refuse to start unless the chain is loaded with its default drop.
-nft list chain inet a11y_egress output | grep -q 'policy drop;'
+# Fail closed: refuse to start unless the app uid is routed into app_out and app_out ends in drop.
+# (nft may print the uid as a name, so accept either form.)
+nft list chain inet a11y_egress output | grep -Eq "meta skuid (\"?$APP_USER\"?|$APP_UID) goto app_out"
+nft list chain inet a11y_egress app_out | grep -v '^\s*}' | grep -v '^\s*$' | tail -n 1 | grep -qx '\s*drop'
 
 cd /app
 export HOME="/home/$APP_USER"
