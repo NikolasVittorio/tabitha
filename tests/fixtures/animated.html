@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Animated</title></head>
+<body>
+  <a href="#a">One</a>
+  <a id="ticker" href="#t" style="outline:none">Tick 0</a>
+  <a href="#b">Two</a>
+  <script>
+    // JS-driven, so neither reduced motion nor animations="disabled" stops it
+    const t = document.getElementById("ticker");
+    let n = 0;
+    (function tick() { t.textContent = "Tick " + n++; requestAnimationFrame(tick); })();
+  </script>
+</body>
+</html>

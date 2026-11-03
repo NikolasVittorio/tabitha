@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Trap first</title></head>
+<body>
+  <div id="trap" tabindex="0">Keyboard trap</div>
+  <a href="#a">One</a>
+  <a href="#b">Two</a>
+  <script>
+    const t = document.getElementById("trap");
+    t.addEventListener("keydown", e => { if (e.key === "Tab") { e.preventDefault(); t.focus(); } });
+  </script>
+</body>
+</html>
