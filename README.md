@@ -37,6 +37,22 @@ Every report ends with this disclaimer, with the numbers filled in:
 
 Automated tools find less than half of accessibility problems. Logical focus order and obscured focus are reported as needing review, never as failures. Nothing is stored; logs hold only rule ids, hashes and job ids.
 
+## Verify a scan log
+
+Every `fix` reply carries an "Automated Scan Log": a JSON payload and an Ed25519 signature over its exact bytes. The payload binds the URL, the SHA-256 of the HTML we scanned, the time, the fix outcomes and the disclaimer. It is valid for that exact input at that time only.
+
+Our published receipt public key (raw Ed25519, hex):
+
+`1cbce8c5af4a0f8c463d3273046fef03d59b11ca8f7f337c046fc71592475f2e`
+
+Always check the signature against this published key. Never trust the key embedded in a receipt: anyone can sign a forged log with their own key and embed it.
+
+```python
+from gate.models import Receipt
+from gate.receipt import verify_receipt
+verify_receipt(Receipt(payload_json=payload, signature_hex=sig, public_key_hex=PUBLISHED_KEY), PUBLISHED_KEY)
+```
+
 ## Configuration
 
 Secrets come from environment variables only (names below; never commit values):

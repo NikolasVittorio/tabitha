@@ -45,6 +45,8 @@ def render_chat(r: Report, max_diff_chars: int = 8000) -> str:
     out.append(f"Needs review: {sum(f.status == 'needs_review' for f in r.findings)}")
     k = sum(f.source == "walker" and f.status == "fail" for f in r.findings)
     out.append(f"Keyboard: {r.focus_count} focus stops walked, {k} keyboard issues")
+    if r.note:
+        out.append(f"Note: {r.note}")
     if r.fixes:
         out.append("Fixes:")
         out += [f"- {x.rule_id} {_code(x.selector)}: {x.outcome}" for x in r.fixes]
@@ -57,5 +59,8 @@ def render_chat(r: Report, max_diff_chars: int = 8000) -> str:
     out.append(f"Untested criteria: {len(r.untested)} ({', '.join(r.untested)})")
     out.append(r.disclaimer)
     if r.receipt:
-        out.append(f"Receipt: {r.receipt.signature_hex[:16]}")
+        p = r.receipt.payload_json
+        t = _ticks(p, 3)
+        out.append(f"Automated Scan Log (Ed25519 signature {r.receipt.signature_hex}; "
+                   f"check it against the public key in our README):\n{t}\n{p}\n{t}")
     return "\n".join(out)
