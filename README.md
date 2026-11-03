@@ -92,7 +92,7 @@ Every scan report ends with this disclaimer, with the numbers filled in:
 
 > "Automated scan result: X violations found across Y tested WCAG 2.2 AA success criteria. Z criteria require manual/human testing and were NOT evaluated. This is not a WCAG conformance determination or legal compliance certification. Suggested code changes are unreviewed and must be checked by a developer before use."
 
-Automated tools find less than half of accessibility problems. In the GOV.UK GDS accessibility audit, the best automated tool found roughly 40% of the known issues; the rest needs a human. Logical focus order and obscured focus are reported as needing review, never as failures. Nothing is stored except, in memory only, sha256 hashes used to compare a sender's rescans; logs hold only rule ids, hashes and job ids. Pages that redirect are scanned at the original URL; relative assets may not load, so results for them can be incomplete.
+Automated tools find less than half of accessibility problems. In the GOV.UK GDS accessibility audit, the best automated tool found roughly 40% of the known issues; the rest needs a human. Obscured focus (2.4.11) is reported as needing review, never as a failure. Focus order (2.4.3) is tested only for modal dialogs; the order on the rest of the page needs a human. Nothing is stored except, in memory only, sha256 hashes used to compare a sender's rescans; logs hold only rule ids, hashes and job ids. Pages that redirect are scanned at the original URL; relative assets may not load, so results for them can be incomplete.
 
 ## Verify a scan log
 

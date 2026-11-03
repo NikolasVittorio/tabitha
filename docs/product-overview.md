@@ -29,7 +29,7 @@ A caller sends one public URL. The agent opens it in a real browser and:
 1. **Scans** it with axe-core 4.14.0 (rule tags `wcag2a, wcag2aa, wcag21a, wcag21aa, wcag22aa`). It also runs two checks of its own on the same page (`source: "gate"`, both "needs review", neither adds a tested criterion, up to 10 findings):
    - `duplicate-link-name` (2.4.4): links share an accessible name but go to different pages.
    - `duplicate-button-name` (2.4.6): buttons share an accessible name.
-2. **Walks it like a keyboard user.** It presses Tab up to 50 times and records each focus stop, and it finds keyboard traps. It checks that the focus indicator can be seen on every stop, within a 10 s budget for the whole walk; if the budget runs out, `focus-visibility-partial` says how many stops were checked. It checks whether a focused element is entirely hidden behind other content (`focus-obscured`, 2.4.11, needs review). It also checks that a modal dialog keeps Tab inside it and that Escape closes it and returns focus to its opener. A modal that Tab escapes (`modal-focus-escape`) is a **fail** under 2.4.3. Focus order, obscured focus, focus return and elements Tab never reaches are reported as "needs review".
+2. **Walks it like a keyboard user.** It presses Tab up to 50 times and records each focus stop, and it finds keyboard traps. It checks that the focus indicator can be seen on every stop, within a 10 s budget for the whole walk; if the budget runs out, `focus-visibility-partial` says how many stops were checked. It checks whether a focused element is entirely hidden behind other content (`focus-obscured`, 2.4.11, needs review). It also checks that a modal dialog keeps Tab inside it and that Escape closes it and returns focus to its opener. A modal that Tab escapes (`modal-focus-escape`) is a **fail** under 2.4.3. Obscured focus, focus return and elements Tab never reaches are reported as "needs review". Focus order (2.4.3) is tested only for modal dialogs; there is no general focus-order check.
 3. **Shows the accessibility tree** ("what screen readers and AI agents see"), using a Playwright ARIA snapshot.
 4. **Fixes the safe issues** (paid `fix` only). The fixes are rule-based, with no AI model involved. Each one is **re-checked by re-scanning the patched page**, and any fix that makes things worse is dropped.
 5. **Reports honestly:**
@@ -156,7 +156,7 @@ These came from the design council and the review rounds, and they're the core o
 
 | Idea | WCAG | Notes |
 |---|---|---|
-| Mouse-only controls: clickable elements Tab never reaches | 2.1.1 | **Already covered.** The walker reports `kbd-unreachable` (needs review) for elements Tab never reaches |
+| Mouse-only controls: clickable elements Tab never reaches | 2.1.1 | **Partly covered:** native focusable elements Tab never reaches are flagged (`kbd-unreachable`, needs review). Clickable non-focusable elements (`div onclick`) are not detected, so the idea stays open and is still a top pick |
 | Reflow at 320px width: sideways scrolling, clipped content | 1.4.10 | Top pick |
 | 200% zoom and text spacing: clipped or overlapping text | 1.4.4, 1.4.12 | 1.4.12 is **already covered** by axe `avoid-inline-spacing`. 200% zoom (1.4.4) is still open and a top pick |
 | Moving or autoplaying content with no pause control | 2.2.2 | |
