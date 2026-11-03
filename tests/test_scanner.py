@@ -74,3 +74,23 @@ async def test_open_html_blocks_page_scripts_even_with_meta_csp():
         assert await page.get_attribute("html", "data-js") is None
         assert await page.evaluate("location.href") == "http://example.com/x?a=1"
     assert "button-name" in {f.rule_id for f in findings}
+
+
+
+async def test_open_html_frame_cannot_cloak_parent(http_server):
+    # a same-origin frame would get no CSP of its own; frame-src 'none' keeps it from loading
+    html = '<html lang="en"><title>t</title><main><button id="v"></button><iframe src="/cloak-frame.html"></iframe></main>'
+    async with open_html(html, f"{http_server}/x.html", allow_ips=LOCAL) as page:
+        await page.wait_for_timeout(500)
+        findings, _ = await scan(page)
+    assert "button-name" in {f.rule_id for f in findings}
+
+
+async def test_open_html_meta_refresh_cannot_replace_document(http_server):
+    base = f"{http_server}/x.html"
+    html = f'<meta http-equiv="refresh" content="0;url={http_server}/clean.html"><button></button>'
+    async with open_html(html, base, allow_ips=LOCAL) as page:
+        await page.wait_for_timeout(500)
+        findings, _ = await scan(page)
+        assert await page.evaluate("location.href") == base
+    assert "button-name" in {f.rule_id for f in findings}
