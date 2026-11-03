@@ -53,6 +53,11 @@ def render_chat(r: Report, max_diff_chars: int = 8000) -> str:
         return f"Error: {_code(r.error)}\n{USAGE}"
     fails = [f for f in r.findings if f.status in ("fail", "needs_author")]
     out = [f"Status: {r.automated_status} ({r.violation_count} violations)"]
+    if r.fixes:
+        k = len({(x.rule_id, x.selector) for x in r.fixes if x.outcome == "fixed"})
+        out.append(f"Automated issues {r.violation_count} → {r.violation_count - k} after fixes ({k} fixed and "
+                   "re-checked on the page source with scripts off)" if k else
+                   "No automated issue was fixed; see fix outcomes below")
     if d := r.delta:
         out.append(f"Since your last scan of this URL ({d.since}): automated issues {d.before} → {d.after} "
                    f"({d.gone} no longer detected, {d.new} new)")
@@ -76,7 +81,7 @@ def render_chat(r: Report, max_diff_chars: int = 8000) -> str:
     if r.diff:
         d = r.diff[:max_diff_chars]
         t = _ticks(d, 3)
-        out.append(f"Suggested patch (quoted from your page, unchanged):\n{t}\n{d}\n{t}")
+        out.append(f"Suggested patch (changed lines only; whitespace and tag formatting normalised):\n{t}\n{d}\n{t}")
         if len(r.diff) > max_diff_chars:
             out.append(f"(diff truncated at {max_diff_chars} characters)")
     out.append(f"Untested criteria: {len(r.untested)} ({', '.join(r.untested)})")

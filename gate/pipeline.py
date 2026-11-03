@@ -6,6 +6,7 @@ from typing import Awaitable, Callable
 
 from gate.models import (Finding, Fix, FixRequest, FixResult, Report, ScanRequest, ScanResult,
                          WalkRequest, WalkResult)
+from gate.allowlist import parse
 from gate.report import build_report
 
 ScanFn = Callable[[ScanRequest], Awaitable[ScanResult]]
@@ -64,7 +65,11 @@ async def _gate(job_id: str, url: str, html: str, findings: list[Finding], scan:
                   for f in axe if f.rule_id in cand[FALLBACK_CAP:]]
     fixes = [x.copy(update={"outcome": "not_fixed", "note": "rescan still fails this element"})
              if x.outcome == "fixed" and (x.rule_id, x.selector) in after else x for x in fixes]
-    diff = "".join(difflib.unified_diff(html.splitlines(True), fr.patched_html.splitlines(True),
+    try:  # diff against the re-serialised original so formatting-only changes drop out
+        old = str(parse(html))
+    except ValueError:  # duplicate attributes: fall back to the raw html
+        old = html
+    diff = "".join(difflib.unified_diff(old.splitlines(True), fr.patched_html.splitlines(True),
                                         "original", "patched"))
     return fixes, diff, b.tree, tree
 
