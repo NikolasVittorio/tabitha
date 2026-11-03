@@ -89,7 +89,7 @@ async def test_late_too_large_wins_over_caller_exception_page(http_server):
             await asyncio.sleep(1)
             raise RuntimeError("caller")
 async def test_late_too_large_wins_over_caller_exception_html(http_server):
-    html = f"<script>setTimeout(() => fetch('{http_server}/big.txt').catch(() => {{}}), 100)</script>"
+    html = f'<meta http-equiv="refresh" content="0.1;url={http_server}/big.txt">'
     with pytest.raises(ValueError, match="too_large"):
         async with open_html(html, http_server, allow_ips=LOCAL, max_bytes=2000):
             await asyncio.sleep(1)

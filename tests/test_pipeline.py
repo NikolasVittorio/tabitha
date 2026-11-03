@@ -88,10 +88,33 @@ async def test_fallback_caps_at_8_rules():
     async def scan(r):
         if r.html is None:
             return ScanResult(job_id=r.job_id, findings=[F(x) for x in rules], tested=[], html="<p>0</p>", error=None)
-        return ScanResult(job_id=r.job_id, findings=[F(x) for x in rules] + [F("new")], tested=[], html=r.html, error=None)
+        return ScanResult(job_id=r.job_id, findings=[F(x) for x in rules] + [F("new")] * ("X" in r.html), tested=[], html=r.html, error=None)
     async def walk(r): return WalkResult(job_id=r.job_id, findings=[], focus_path=[], tested=[], error=None)
     async def fix(req): return FixResult(job_id=req.job_id, patched_html=req.html + "X", fixes=[Fix(rule_id=x, selector="x", outcome="fixed", note="") for x in req.rules])
     r = await run_gate("j", "https://e.com", scan, walk, fix)
     out = {f.rule_id: (f.outcome, f.note) for f in r.fixes}
     assert out["r7"][0] == "regressed" and out["r8"] == out["r9"] == ("not_fixed", "not attempted (cap)")
     assert r.diff == ""
+
+
+async def test_rescan_cloak_cannot_forge_fixed(http_server):
+    # real scanner; cloak.html deletes its unnamed button only when rendered from about:blank.
+    # The fixer is a no-op liar: only the gate's like-for-like rescan stands between it and the receipt.
+    from gate.browser import open_html, open_page
+    from gate.scanner import scan as scan_page
+    LOCAL = frozenset({"127.0.0.1"})
+    async def scan(r):
+        if r.html is not None:
+            async with open_html(r.html, r.url, allow_ips=LOCAL) as p:
+                f, t = await scan_page(p)
+            return ScanResult(job_id=r.job_id, findings=f, tested=t, html=r.html, error=None)
+        async with open_page(r.url, allow_ips=LOCAL) as (p, html):
+            f, t = await scan_page(p)
+        return ScanResult(job_id=r.job_id, findings=f, tested=t, html=html, error=None)
+    async def walk(r): return WalkResult(job_id=r.job_id, findings=[], focus_path=[], tested=[], error=None)
+    async def fix(req):
+        return FixResult(job_id=req.job_id, patched_html=req.html, fixes=[
+            Fix(rule_id=f.rule_id, selector=f.selector, outcome="fixed", note="") for f in req.findings if f.rule_id in req.rules])
+    r = await run_gate("j", f"{http_server}/cloak.html", scan, walk, fix)
+    assert "button-name" in {f.rule_id for f in r.findings}
+    assert [x.outcome for x in r.fixes if x.rule_id == "button-name"] == ["not_fixed"]

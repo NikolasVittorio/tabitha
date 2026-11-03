@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from gate.browser import open_html, open_page
 from gate.fixer import fix
 from gate.scanner import scan
@@ -58,4 +60,17 @@ async def test_shadow_target_is_nested_and_unfixable(http_server):
 async def test_open_html_scans():
     async with open_html("<button></button>", "http://example.com/") as page:
         findings, _ = await scan(page)
+    assert "button-name" in {f.rule_id for f in findings}
+
+
+async def test_open_html_blocks_page_scripts_even_with_meta_csp():
+    # rescans are served under CSP script-src 'none'; a page meta CSP can only tighten it
+    html = (Path(__file__).parent / "fixtures" / "broken.html").read_text("utf-8")
+    html = ('<meta http-equiv="Content-Security-Policy" content="script-src \'unsafe-inline\' *">'
+            + html + "<script>document.documentElement.dataset.js = 'ran'</script>"
+            + '<img src="data:," onerror="document.documentElement.dataset.js = \'ran\'">')
+    async with open_html(html, "http://example.com/x?a=1") as page:
+        findings, _ = await scan(page)  # axe's isolated world is not subject to page CSP
+        assert await page.get_attribute("html", "data-js") is None
+        assert await page.evaluate("location.href") == "http://example.com/x?a=1"
     assert "button-name" in {f.rule_id for f in findings}

@@ -3,7 +3,6 @@ import asyncio
 import ipaddress
 import socket
 from contextlib import asynccontextmanager
-from html import escape
 from urllib.parse import urljoin, urlsplit
 
 from playwright.async_api import Error as PlaywrightError, async_playwright
@@ -121,7 +120,22 @@ async def open_page(url, *, allow_ips=frozenset(), timeout_s: float = 30, max_by
 
 @asynccontextmanager
 async def open_html(html, base_url, *, allow_ips=frozenset(), timeout_s: float = 30, max_bytes: int = 2_000_000):
+    # Served at base_url (not about:blank) under CSP: page scripts never run, so they cannot
+    # detect the rescan and hide violations. A page meta CSP can only tighten this.
+    # axe still runs: CDP Runtime.evaluate in an isolated world is exempt from page CSP.
     async with _context(timeout_s, allow_ips, max_bytes) as (ctx, _):
         page = await ctx.new_page()
-        await page.set_content(f'<base href="{escape(base_url, quote=True)}">{html}')
+        served = False
+
+        async def main_doc(route):
+            nonlocal served
+            if served or not route.request.is_navigation_request() or route.request.frame != page.main_frame:
+                return await route.fallback()  # everything else goes through the context guard
+            served = True
+            await route.fulfill(status=200, body=html, headers={
+                "Content-Type": "text/html; charset=utf-8",
+                "Content-Security-Policy": "script-src 'none'; object-src 'none'; base-uri 'none'"})
+
+        await page.route("**/*", main_doc)  # page routes run before the context's catch-all guard
+        await page.goto(base_url, timeout=0)  # wall-clock cap is _context's asyncio.timeout
         yield page

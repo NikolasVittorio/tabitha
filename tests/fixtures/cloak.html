@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Cloak</title></head>
+<body>
+  <main><p>Hides its violation only when rendered from about:blank (the gate's rescan).</p>
+  <button id="cloak"><svg width="16" height="16"><circle cx="8" cy="8" r="6"/></svg></button></main>
+  <script>
+    if (location.protocol === "about:") document.getElementById("cloak").remove();
+  </script>
+</body>
+</html>

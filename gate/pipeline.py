@@ -28,7 +28,12 @@ async def _gate(job_id: str, url: str, html: str, findings: list[Finding], scan:
     cand = sorted({f.rule_id for f in axe if f.status in ("fail", "needs_author")})
     if not cand:
         return [], ""
-    base = _fails(axe)
+    # Like-for-like baseline: the original html scanned the same way as every rescan (about:blank,
+    # JS off), so neither page scripts nor the render mode can fake a drop in violations.
+    b = await scan(ScanRequest(job_id=f"{job_id}:base", url=url, html=html))
+    if b.error:
+        raise RuntimeError("baseline scan failed")
+    base = _fails(b.findings)
     n = count(1)
 
     async def attempt(rules: list[str]) -> tuple[FixResult, Counter, bool]:
