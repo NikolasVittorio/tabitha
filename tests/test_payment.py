@@ -9,21 +9,24 @@ import agents.lead as lead_mod
 from gate.payment import verify_fet_payment, PRICE_AFET
 
 TO = "fetch1lead"
+M = "job-1"
 
 
-def tx(code=0, to=TO, amt=PRICE_AFET, denom="atestfet"):
-    return {"code": code, "messages": [{"@type": "/cosmos.bank.v1beta1.MsgSend", "to_address": to, "amount": [{"denom": denom, "amount": str(amt)}]}]}
+def tx(code=0, to=TO, amt=PRICE_AFET, denom="atestfet", memo=M):
+    return {"code": code, "memo": memo, "messages": [{"@type": "/cosmos.bank.v1beta1.MsgSend", "to_address": to, "amount": [{"denom": denom, "amount": str(amt)}]}]}
 
 
 def test_verify_cases():
     used = set()
-    assert verify_fet_payment("h1", TO, PRICE_AFET, lambda h: tx(), used)
-    assert not verify_fet_payment("h1", TO, PRICE_AFET, lambda h: tx(), used)   # replay
-    assert not verify_fet_payment("h2", TO, PRICE_AFET, lambda h: tx(code=5), used)
-    assert not verify_fet_payment("h3", TO, PRICE_AFET, lambda h: tx(to="fetch1other"), used)
-    assert not verify_fet_payment("h4", TO, PRICE_AFET, lambda h: tx(amt=1), used)
-    assert not verify_fet_payment("h5", TO, PRICE_AFET, lambda h: None, used)
-    assert not verify_fet_payment("h6", TO, PRICE_AFET, lambda h: tx(denom="afet"), used)
+    assert verify_fet_payment("h1", TO, PRICE_AFET, lambda h: tx(), used, M)
+    assert not verify_fet_payment("h1", TO, PRICE_AFET, lambda h: tx(), used, M)   # replay
+    assert not verify_fet_payment("h2", TO, PRICE_AFET, lambda h: tx(code=5), used, M)
+    assert not verify_fet_payment("h3", TO, PRICE_AFET, lambda h: tx(to="fetch1other"), used, M)
+    assert not verify_fet_payment("h4", TO, PRICE_AFET, lambda h: tx(amt=1), used, M)
+    assert not verify_fet_payment("h5", TO, PRICE_AFET, lambda h: None, used, M)
+    assert not verify_fet_payment("h6", TO, PRICE_AFET, lambda h: tx(denom="afet"), used, M)
+    assert not verify_fet_payment("h7", TO, PRICE_AFET, lambda h: tx(memo="job-2"), used, M)  # memo mismatch
+    assert not verify_fet_payment("h8", TO, PRICE_AFET, lambda h: tx(memo=""), used, "")  # no empty binding
     assert used == {"h1"}  # failures never burn a hash
 
 
@@ -40,10 +43,12 @@ class Ctx:
         self.sent.append((to, msg))
 
 
-def setup(get_tx=lambda h: None):
-    agent = lead_mod.make_lead("seed", SUBS, get_tx=get_tx)
+def setup():
+    chain = {}  # tx hash -> tx dict; tests "confirm" txs by adding them
+    agent = lead_mod.make_lead("seed", SUBS, get_tx=chain.get)
     h = lambda m: agent._signed_message_handlers[Model.build_schema_digest(m)]
-    return agent, h(ChatMessage), h(CommitPayment), Ctx()
+    pay = lambda h_, req: chain.__setitem__(h_, tx(to=str(agent.wallet.address()), memo=req.reference))
+    return pay, h(ChatMessage), h(CommitPayment), Ctx()
 
 
 async def request(on_chat, ctx, sender):
@@ -60,53 +65,88 @@ def dispatched(ctx):
     return [m for to, m in ctx.sent if to in SUBS.values()]
 
 
-async def settle():
-    for _ in range(5):
-        await asyncio.sleep(0)
+def completed(ctx, who):
+    return any(to == who and isinstance(m, CompletePayment) for to, m in ctx.sent)
+
+
+async def settle():  # let handlers run, including the to_thread tx lookup
+    for _ in range(20):
+        await asyncio.sleep(0.01)
 
 
 async def test_wrong_sender_rejected_then_owner_pays():
-    agent, on_chat, on_commit, ctx = setup(lambda h: tx(to=str(agent.wallet.address())))
+    pay, on_chat, on_commit, ctx = setup()
     req = await request(on_chat, ctx, "alice")
-    assert req.recipient == str(agent.wallet.address()) and req.deadline_seconds == 300
+    assert req.deadline_seconds == 300 and req.reference in req.description
     assert req.accepted_funds[0].amount == "0.5" and req.accepted_funds[0].payment_method == "fet_direct"
-    assert dispatched(ctx) == []
+    pay("h1", req)
     await on_commit(ctx, "mallory", commit(req, "h1"))
     assert isinstance(ctx.sent[-2][1], CancelPayment) and ctx.sent[-1][0] == "mallory"
     assert dispatched(ctx) == []
     job = asyncio.create_task(on_commit(ctx, "alice", commit(req, "h1")))  # reference not consumed by mallory
     await settle()
-    assert any(to == "alice" and isinstance(m, CompletePayment) for to, m in ctx.sent)
-    assert len(dispatched(ctx)) == 2  # scan + walk
+    assert completed(ctx, "alice") and len(dispatched(ctx)) == 2  # scan + walk
+    job.cancel()
+
+
+async def test_two_senders_race_for_one_tx_memo_decides():
+    pay, on_chat, on_commit, ctx = setup()
+    ra, rb = await request(on_chat, ctx, "alice"), await request(on_chat, ctx, "bob")
+    pay("h1", ra)  # alice's tx, memo = alice's job id, publicly visible on chain
+    await on_commit(ctx, "bob", commit(rb, "h1"))  # bob claims it for his own job
+    assert isinstance(ctx.sent[-2][1], CancelPayment) and "memo" in ctx.sent[-1][1].text()
+    assert not completed(ctx, "bob") and dispatched(ctx) == []
+    job_a = asyncio.create_task(on_commit(ctx, "alice", commit(ra, "h1")))
+    await settle()
+    assert completed(ctx, "alice")
+    pay("h2", rb)  # bob's job stayed pending after the definitive rejection; he can still pay
+    job_b = asyncio.create_task(on_commit(ctx, "bob", commit(rb, "h2")))
+    await settle()
+    assert completed(ctx, "bob")
+    job_a.cancel(), job_b.cancel()
+
+
+async def test_lookup_miss_is_retryable():
+    pay, on_chat, on_commit, ctx = setup()
+    req = await request(on_chat, ctx, "alice")
+    await on_commit(ctx, "alice", commit(req, "h1"))  # not indexed yet
+    assert "transaction not found yet - resend CommitPayment" in ctx.sent[-1][1].text()
+    assert not any(isinstance(m, CancelPayment) for _, m in ctx.sent)
+    pay("h1", req)
+    job = asyncio.create_task(on_commit(ctx, "alice", commit(req, "h1")))
+    await settle()
+    assert completed(ctx, "alice") and len(dispatched(ctx)) == 2
     job.cancel()
 
 
 async def test_expired_reference_rejected(monkeypatch):
     monkeypatch.setattr(lead_mod, "WINDOW", 0)
-    agent, on_chat, on_commit, ctx = setup(lambda h: tx(to=str(agent.wallet.address())))
+    pay, on_chat, on_commit, ctx = setup()
     req = await request(on_chat, ctx, "alice")
+    pay("h1", req)
     await on_commit(ctx, "alice", commit(req, "h1"))  # before the expiry timer even runs
-    assert isinstance(ctx.sent[-2][1], CancelPayment)
-    assert dispatched(ctx) == []
+    assert isinstance(ctx.sent[-2][1], CancelPayment) and dispatched(ctx) == []
     req2 = await request(on_chat, ctx, "bob")
     await settle()  # timer fires: chat-only caller hears back
     assert ctx.sent[-1][0] == "bob" and "payment window expired" in ctx.sent[-1][1].text()
+    pay("h2", req2)
     await on_commit(ctx, "bob", commit(req2, "h2"))
     assert isinstance(ctx.sent[-2][1], CancelPayment) and dispatched(ctx) == []
 
 
 async def test_replayed_hash_rejected_across_jobs():
-    agent, on_chat, on_commit, ctx = setup(lambda h: tx(to=str(agent.wallet.address())))
-    req1 = await request(on_chat, ctx, "alice")
-    req2 = await request(on_chat, ctx, "alice")
+    pay, on_chat, on_commit, ctx = setup()
+    req1, req2 = await request(on_chat, ctx, "alice"), await request(on_chat, ctx, "alice")
+    pay("h1", req1)
     job = asyncio.create_task(on_commit(ctx, "alice", commit(req1, "h1")))
     await settle()
     n = len(dispatched(ctx))
     await on_commit(ctx, "alice", commit(req2, "h1"))
     assert isinstance(ctx.sent[-2][1], CancelPayment) and "not verified" in ctx.sent[-1][1].text()
     assert len(dispatched(ctx)) == n
+    pay("h9", req1)
     await on_commit(ctx, "alice", commit(req1, "h9"))  # a reference is consumed once
-    assert isinstance(ctx.sent[-2][1], CancelPayment)
+    assert isinstance(ctx.sent[-2][1], CancelPayment) and len(dispatched(ctx)) == n
     job.cancel()
 
 
@@ -117,7 +157,7 @@ async def test_payment_disabled_runs_free_on_scan_quota(monkeypatch):
         assert fix is not None
         raise RuntimeError("stop here")  # the fix path was reached without payment
     monkeypatch.setattr(lead_mod, "run_gate", fake_gate)
-    agent, on_chat, on_commit, ctx = setup()
+    pay, on_chat, on_commit, ctx = setup()
     reached = 0
     for _ in range(6):
         try:
@@ -137,6 +177,6 @@ async def test_payment_disabled_reply_is_labelled(monkeypatch):
         return Report(job_id=job_id, url=url, automated_status="no_automated_violations_detected", violation_count=0,
                       findings=[], tested=[], untested=[], fixes=[], diff="", disclaimer="", receipt=None, error="timeout")
     monkeypatch.setattr(lead_mod, "run_gate", fake_gate)
-    agent, on_chat, on_commit, ctx = setup()
+    pay, on_chat, on_commit, ctx = setup()
     await on_chat(ctx, "alice", ChatMessage(content=[TextContent(text="fix https://e.com")]))
     assert "payment disabled for the event" in ctx.sent[-1][1].text()

@@ -106,9 +106,9 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=dorado_get_tx) -> Age
             await ctx.send(sender, RequestPayment(
                 accepted_funds=[Funds(currency="FET", amount="0.5", payment_method="fet_direct")],
                 recipient=pay_to, deadline_seconds=WINDOW, reference=job_id,
-                description="TEST — a11y patch + signed scan log"))
-            await say(ctx, sender, f"Payment requested: 0.5 TEST FET to {pay_to} on Dorado testnet, "
-                                   f"reference {job_id}, within {WINDOW} s.", end=False)
+                description=f"TEST — a11y patch + signed scan log. Set the tx memo to {job_id} (the reference)."))
+            await say(ctx, sender, f"Payment requested: 0.5 TEST FET to {pay_to} on Dorado testnet "
+                                   f"with tx memo {job_id}, within {WINDOW} s.", end=False)
             return
         if is_fix and not quota.allow(sender, today):  # payment off: fix rides the free scan quota
             text = QUOTA_REPLY
@@ -126,24 +126,34 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=dorado_get_tx) -> Age
 
     @pay.on_message(CommitPayment)
     async def on_commit(ctx: Context, sender: str, msg: CommitPayment):
-        async def refuse(why: str):
+        async def refuse(why: str):  # the job stays pending until its deadline, so the buyer may retry
             await ctx.send(sender, CancelPayment(transaction_id=msg.transaction_id, reason=why))
             await say(ctx, sender, f"Payment not verified ({why}); no fix was run.")
 
-        job_id = msg.reference or ""
-        p = pending_payments.get(job_id)
-        if not p or p["sender"] != sender:  # a stranger can't consume someone else's reference
-            return await refuse("unknown payment reference")
-        del pending_payments[job_id]  # consumed once, whatever happens next
-        p["timer"].cancel()
-        if time.monotonic() >= p["deadline"]:
-            return await refuse("payment window expired")
-        tx_hash = msg.transaction_id
+        job_id, tx_hash = msg.reference or "", msg.transaction_id
+
+        def live():  # the sender's own, unexpired, still-open job
+            p = pending_payments.get(job_id)
+            return p if p and p["sender"] == sender and time.monotonic() < p["deadline"] else None
+
+        if not live():  # a stranger can't touch someone else's reference
+            return await refuse("unknown or expired payment reference")
         ctx.logger.info(f"job {job_id} tx={tx_hash}")  # the hash only, never tx contents
-        tx = await asyncio.to_thread(get_tx, tx_hash)  # blocking query, off the event loop...
-        # ...then check-and-add `used_tx` with no await in between, so two jobs can't claim one hash
-        if not verify_fet_payment(tx_hash, pay_to, PRICE_AFET, lambda _: tx, used_tx):
-            return await refuse("transaction not found, failed, too small, wrong recipient or already used")
+        try:
+            tx = await asyncio.to_thread(get_tx, tx_hash)  # blocking query, off the event loop
+        except Exception:
+            return await refuse("transaction lookup failed")
+        if tx is None:  # not indexed yet or chain unreachable: keep the job and its timer
+            return await say(ctx, sender, "transaction not found yet - resend CommitPayment", end=False)
+        # From here to the pop there is no await: re-check the job (it may have expired or been paid
+        # during the lookup), check-and-add `used_tx`, consume the reference.
+        p = live()
+        if not p or not verify_fet_payment(tx_hash, pay_to, PRICE_AFET, lambda _: tx, used_tx, job_id):
+            return await refuse("unknown or expired payment reference" if not p else
+                                "memo must equal the payment reference" if tx.get("memo") != job_id else
+                                "transaction failed, below 0.5 TEST FET, wrong recipient or already used")
+        del pending_payments[job_id]
+        p["timer"].cancel()
         await ctx.send(sender, CompletePayment(transaction_id=tx_hash))
         # ponytail: paid jobs wait for a slot instead of getting BUSY, so a payment is never lost
         async with sem:
