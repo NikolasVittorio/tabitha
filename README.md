@@ -20,6 +20,21 @@ A11y Gate is one uAgents Bureau with four agents. Talk to the lead; it hires the
 | walker | deterministic keyboard walk (up to 50 Tab presses) | `<WALKER_ADDRESS>` |
 | fixer | deterministic, rule-based patches (no LLM) | `<FIXER_ADDRESS>` |
 
+## Quick start (local run)
+
+```bash
+python -m venv .venv && source .venv/Scripts/activate   # on Linux/macOS: source .venv/bin/activate
+pip install -r requirements.txt && playwright install chromium
+export LEAD_SEED=... SCANNER_SEED=... WALKER_SEED=... FIXER_SEED=... RECEIPT_KEY_HEX=...
+python -m agents.lead        # prints the four agent addresses and an Inspector link
+python -m pytest -q
+```
+
+Connect the lead's mailbox from the Inspector link, then chat with it from ASI:One.
+
+Reproduce an empty result: send `check https://example.com`. You get zero automated violations, the keyboard-walk summary, the full disclaimer and the list of criteria that were not tested.
+Reproduce a blocked URL: send `check http://169.254.169.254/`. The metadata address is refused before any content loads and you get an error report.
+
 ## Usage
 
 Send a chat message to the lead (for example from ASI:One):
@@ -39,7 +54,7 @@ Every report ends with this disclaimer, with the numbers filled in:
 
 > "Automated scan result: X violations found across Y tested WCAG 2.2 AA success criteria. Z criteria require manual/human testing and were NOT evaluated. This is not a WCAG conformance determination or legal compliance certification. Suggested code changes are unreviewed and must be checked by a developer before use."
 
-Automated tools find less than half of accessibility problems. Logical focus order and obscured focus are reported as needing review, never as failures. Nothing is stored; logs hold only rule ids, hashes and job ids.
+Automated tools find less than half of accessibility problems. In the GOV.UK GDS accessibility audit, the best automated tool found roughly 40% of the known issues; the rest needs a human. Logical focus order and obscured focus are reported as needing review, never as failures. Nothing is stored; logs hold only rule ids, hashes and job ids.
 
 ## Verify a scan log
 
@@ -61,9 +76,29 @@ verify_receipt(Receipt(payload_json=payload, signature_hex=sig, public_key_hex=P
 
 Secrets come from environment variables only (names below; never commit values):
 
-`LEAD_SEED`, `SCANNER_SEED`, `WALKER_SEED`, `FIXER_SEED`, `RECEIPT_KEY_HEX`, `BUYER_SEED`, `BUYER_WALLET_MNEMONIC`
+`LEAD_SEED`, `SCANNER_SEED`, `WALKER_SEED`, `FIXER_SEED`, `RECEIPT_KEY_HEX`, `PAYMENT_ENABLED` (optional, `0` turns payment off), `LEAD_ADDRESS`, `BUYER_SEED`, `BUYER_WALLET_MNEMONIC`
 
-The deployed container needs the first five. `BUYER_*` are for the local demo buyer only.
+The deployed container needs the first five. `PAYMENT_ENABLED` is optional (default `1`). `LEAD_ADDRESS` and `BUYER_*` are for the local demo buyer only.
+
+## Demo
+
+Page: `demo/broken.html` (served from GitHub Pages). Buyer: `python -m agents.demo_buyer <url>` pays 0.5 TEST FET on Dorado with the tx memo set to the payment reference, then prints each reply. Scripts: `docs/demo-script.md`.
+
+1. Broken theme page, with pre-recorded screen-reader audio.
+2. Focus-path overlay showing focus trapped in a modal.
+3. Patch, then the counter "Automated issues N → M (image alt text needs the author)" and "N criteria need human review".
+4. Audio after the fix.
+5. Receipt and the TEST FET payment reference.
+
+## Submission evidence
+
+- [ ] Public, non-fork GitHub repo
+- [ ] 3 assigned ASI:One trials, plus 1 change made from their feedback (own commit)
+- [ ] Launch video, 2 minutes or less
+- [ ] Walkthrough video, 3 to 5 minutes
+- [ ] Innovation Lab badges in this README
+- [ ] Agent addresses in the Agents table
+- [ ] Outreach sent (`docs/outreach.md`) and external callers logged (`docs/external-calls.md`)
 
 ## Deploy (Fly.io, always on)
 
