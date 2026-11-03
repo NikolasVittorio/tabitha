@@ -1,9 +1,10 @@
 # Tag must equal the playwright version pinned in requirements.txt.
 FROM mcr.microsoft.com/playwright/python:v1.64.1-noble
 
-# nftables: egress firewall (deploy/entrypoint.sh). socat: temporary Inspector bridge (README).
+# nftables: egress firewall (deploy/entrypoint.sh). iproute2: egress-check dummy addresses.
+# socat: temporary Inspector bridge (README).
 RUN apt-get update \
- && apt-get install -y --no-install-recommends nftables socat \
+ && apt-get install -y --no-install-recommends nftables iproute2 socat \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

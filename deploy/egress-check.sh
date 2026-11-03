@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Acceptance test for the egress firewall. Run as root on the machine:
 #   fly ssh console -C /app/deploy/egress-check.sh
-# Probes run as the app uid. Exits non-zero on any unexpected result.
+# Root puts dummy addresses on lo with listeners it can prove it reaches, then checks
+# that the app uid cannot. Exits non-zero on any unexpected or inconclusive result.
 set -uo pipefail
 
 APP_USER=pwuser
@@ -9,43 +10,87 @@ APP_UID=$(id -u "$APP_USER")
 APP_GID=$(id -g "$APP_USER")
 failures=0
 
-# probe <tcp host port | https url>: exit 0 if reachable
+BLOCKED_V4=(198.18.0.1 192.0.2.1 10.99.0.1)
+BLOCKED_V6=(2001:db8::1 64:ff9b::1)
+ALLOWED=100.0.0.1  # public-looking (outside 100.64/10), positive control
+
+# probe tcp <host> <port> | https <url>: exit 0 connected, 1 OSError. Anything else is a probe error.
 PROBE='
 import socket, sys, urllib.request
-if sys.argv[1] == "tcp":
-    socket.create_connection((sys.argv[2], int(sys.argv[3])), timeout=5).close()
-else:
-    assert urllib.request.urlopen(sys.argv[2], timeout=10).status == 200
+try:
+    if sys.argv[1] == "tcp":
+        socket.create_connection((sys.argv[2], int(sys.argv[3])), timeout=5).close()
+    elif urllib.request.urlopen(sys.argv[2], timeout=10).status != 200:
+        sys.exit(1)
+except OSError:
+    sys.exit(1)
+sys.exit(0)
 '
 as_app() { setpriv --reuid="$APP_UID" --regid="$APP_GID" --init-groups python3 -c "$PROBE" "$@" >/dev/null 2>&1; }
 as_root() { python3 -c "$PROBE" "$@" >/dev/null 2>&1; }
 
-report() {  # report <ok?> <label>
-  if [ "$1" = 0 ]; then echo "PASS $2"; else echo "FAIL $2"; failures=$((failures + 1)); fi
+pass() { echo "PASS $1"; }
+fail() { echo "FAIL $1"; failures=$((failures + 1)); }
+
+listener_pid=""
+cleanup() {
+  [ -n "$listener_pid" ] && kill "$listener_pid" 2>/dev/null
+  for a in "${BLOCKED_V4[@]}" "$ALLOWED"; do ip addr del "$a/32" dev lo 2>/dev/null; done
+  for a in "${BLOCKED_V6[@]}"; do ip addr del "$a/128" dev lo 2>/dev/null; done
+}
+trap cleanup EXIT
+
+for a in "${BLOCKED_V4[@]}" "$ALLOWED"; do ip addr add "$a/32" dev lo; done
+for a in "${BLOCKED_V6[@]}"; do ip addr add "$a/128" dev lo nodad; done
+
+# Root listeners: no accept() needed, the kernel completes the handshake on a listening socket.
+python3 - "${BLOCKED_V4[@]}" "${BLOCKED_V6[@]}" "$ALLOWED" <<'EOF' &
+import socket, sys, time
+socks = []
+targets = [(a, 80) for a in sys.argv[1:]] + [(sys.argv[-1], 8080)]
+for host, port in targets:
+    s = socket.socket(socket.AF_INET6 if ":" in host else socket.AF_INET)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.bind((host, port))
+    s.listen(16)
+    socks.append(s)
+time.sleep(120)
+EOF
+listener_pid=$!
+sleep 1
+
+expect_blocked() {  # expect_blocked <host> <port>
+  local label="$1:$2"
+  as_root tcp "$1" "$2"; local root=$?
+  if [ "$root" -ne 0 ]; then fail "inconclusive: root cannot reach $label (exit $root)"; return; fi
+  as_app tcp "$1" "$2"; local app=$?
+  case "$app" in
+    1) pass "app uid blocked: $label (root reaches it)" ;;
+    0) fail "app uid reached $label" ;;
+    *) fail "probe error as app uid for $label (exit $app)" ;;
+  esac
 }
 
-expect_blocked() {  # expect_blocked <label> <probe args...>
-  local label=$1; shift
+expect_reachable() {  # expect_reachable <probe args...>
+  local label="${*:2}"
   as_app "$@"; local app=$?
-  as_root "$@" && ctl="reachable as root" || ctl="also unreachable as root, so this line proves less"
-  report $(( app == 0 )) "app uid blocked: $label ($ctl)"
+  case "$app" in
+    0) pass "app uid reachable: $label" ;;
+    1) fail "app uid cannot reach $label" ;;
+    *) fail "probe error as app uid for $label (exit $app)" ;;
+  esac
 }
 
-expect_reachable() {
-  local label=$1; shift
-  as_app "$@"; report $? "app uid reachable: $label"
-}
-
-nft list chain inet a11y_egress output >/dev/null 2>&1; report $? "nftables table inet a11y_egress loaded"
-
-expect_blocked "http://169.254.169.254/ (metadata)" tcp 169.254.169.254 80
-expect_blocked "http://[fdaa::3]:53 (Fly 6PN resolver over TCP)" tcp fdaa::3 53
-if [ -n "${FLY_PRIVATE_IP:-}" ]; then
-  expect_blocked "[$FLY_PRIVATE_IP]:8000 (own 6PN address)" tcp "$FLY_PRIVATE_IP" 8000
+if nft list chain inet a11y_egress output 2>/dev/null | grep -q 'policy drop;'; then
+  pass "nftables chain inet a11y_egress output loaded with policy drop"
+else
+  fail "nftables chain inet a11y_egress output missing or not policy drop"
 fi
-expect_blocked "127.0.0.1:8000 (loopback Bureau port)" tcp 127.0.0.1 8000
-expect_blocked "10.0.0.1:80 (RFC1918)" tcp 10.0.0.1 80
-expect_reachable "https://example.com (needs DNS + public egress)" https https://example.com/
+
+for a in "${BLOCKED_V4[@]}" "${BLOCKED_V6[@]}"; do expect_blocked "$a" 80; done
+expect_reachable tcp "$ALLOWED" 80        # allow rule works and the blocks are not blanket
+expect_blocked "$ALLOWED" 8080            # port restriction (default drop)
+expect_reachable https https://example.com/  # DNS + real public egress
 
 if [ "$failures" -ne 0 ]; then echo "$failures unexpected result(s)"; exit 1; fi
 echo "all egress checks as expected"

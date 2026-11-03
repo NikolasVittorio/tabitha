@@ -9,7 +9,7 @@ APP_UID=$(id -u "$APP_USER")
 APP_GID=$(id -g "$APP_USER")
 
 # Allow UDP 53 only to the resolvers in /etc/resolv.conf. TCP 53 stays blocked, so the
-# resolver cannot be used as a generic TCP target (egress-check probes [fdaa::3]:53 over TCP).
+# resolver cannot be used as a generic TCP target.
 dns_rules=""
 for ns in $(awk '$1 == "nameserver" {print $2}' /etc/resolv.conf); do
   case "$ns" in
@@ -22,27 +22,34 @@ if [ -z "$dns_rules" ]; then
   exit 1
 fi
 
+# Default drop for the app uid: it may only resolve DNS and open TCP 80/443 to public
+# addresses. Every dependency host in the installed packages uses 443: agentverse.ai
+# (mailbox, Almanac API), grpc-dorado.fetch.ai and grpc-fetchhub.fetch.ai (cosmpy
+# grpc+https, default port 443). No other port is needed.
 # Loopback is blocked entirely: Bureau agents dispatch to each other in-process
 # (uagents dispatcher), and Playwright talks to Chromium over a pipe, not localhost.
 # "established,related" lets the app answer inbound connections (e.g. fly proxy to the
 # Bureau port); an outbound connection to a blocked range never gets established.
+# The DNS accepts stay above the drops: Fly's resolver fdaa::3 sits inside fc00::/7.
+# ponytail: Teredo 2001::/32 and 6to4 relay 192.88.99.0/24 are left to the 80/443 restriction.
 nft -f - <<EOF
 table inet a11y_egress
 delete table inet a11y_egress
 table inet a11y_egress {
   chain output {
-    type filter hook output priority 0; policy accept;
+    type filter hook output priority 0; policy drop;
     meta skuid != $APP_UID accept
     ct state established,related accept
 $dns_rules
-    ip daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 0.0.0.0/8 } drop
-    ip6 daddr { fc00::/7, fe80::/10, ::1/128, ::ffff:0:0/96 } drop
+    ip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.0.2.0/24, 192.168.0.0/16, 198.18.0.0/15, 198.51.100.0/24, 203.0.113.0/24, 224.0.0.0/4, 240.0.0.0/4, 255.255.255.255/32 } drop
+    ip6 daddr { ::/128, ::1/128, ::ffff:0:0/96, 64:ff9b::/96, 64:ff9b:1::/48, 100::/64, 2001:db8::/32, 2002::/16, fc00::/7, fe80::/10, ff00::/8 } drop
+    tcp dport { 80, 443 } accept
   }
 }
 EOF
 
-# Fail closed: refuse to start unless the table is really there.
-nft list chain inet a11y_egress output >/dev/null
+# Fail closed: refuse to start unless the chain is loaded with its default drop.
+nft list chain inet a11y_egress output | grep -q 'policy drop;'
 
 cd /app
 export HOME="/home/$APP_USER"
