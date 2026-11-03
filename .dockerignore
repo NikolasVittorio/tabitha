@@ -1,0 +1,12 @@
+.venv
+.git
+.gitignore
+.env
+.superpowers
+.claude
+.pytest_cache
+**/__pycache__
+tests/__pycache__
+quiet-quack.md
+quiet-quack-claude-code-pressure-test.md
+stranger-builds-fetch-challenge.md
