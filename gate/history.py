@@ -34,4 +34,5 @@ class History:
         if prev is None:
             return None
         ids, count, since = prev
-        return Delta(since=since, before=count, after=len(cur), gone=len(ids - cur), new=len(cur - ids))
+        return Delta(since=since, before=count, after=len(cur), gone=len(ids - cur), new=len(cur - ids),
+                     new_at=[i for i, f in enumerate(r.findings) if f.status in ("fail", "needs_author") and _h(f.rule_id, f.selector) not in ids])

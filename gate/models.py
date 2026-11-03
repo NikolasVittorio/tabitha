@@ -79,6 +79,7 @@ class Delta(Model):
     after: int
     gone: int
     new: int
+    new_at: list[int] = []  # indices into Report.findings of counted findings new since the last scan
 
 
 class Report(Model):

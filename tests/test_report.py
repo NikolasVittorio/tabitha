@@ -116,3 +116,12 @@ def test_issues_left_absent_without_fixes():
     assert "after fixes" not in render_chat(build_report("j", "u", [F("a")], ["1.4.3"]))
 def test_patch_label():
     assert "Suggested patch (changed lines only; whitespace and tag formatting normalised):" in _fixed_report(_fx(("r0", "#x")))
+def test_new_since_last_scan_listed():
+    from gate.models import Delta
+    fs = [Finding(rule_id="r", source="axe", status="fail", impact=None, selector=s, wcag=["1.4.3"], message="m") for s in ("a", "b")]
+    r = build_report("j", "u", fs, ["1.4.3"]).copy(update={"delta": Delta(since="x", before=1, after=2, gone=0, new=1, new_at=[1])})
+    t = render_chat(r)
+    lines = t.splitlines()
+    i = lines.index("New since your last scan:")
+    assert lines[i + 1] == "- r — ` b `" and "` a `" not in lines[i + 1] and not lines[i + 2].startswith("- ")
+    assert not re.search(BANNED, strip_code(t), re.I)

@@ -11,7 +11,15 @@ def test_first_scan_no_delta():
 def test_delta_counts():
     h = History()
     h.compare("s", "u", R("a", "b", "c"), NOW)
-    assert h.compare("s", "u", R("c", "d"), NOW) == Delta(since="09:05 UTC 04 Nov", before=3, after=2, gone=2, new=1)
+    assert h.compare("s", "u", R("c", "d"), NOW) == Delta(since="09:05 UTC 04 Nov", before=3, after=2, gone=2, new=1, new_at=[1])
+def test_new_findings_marked():
+    h = History()
+    h.compare("s", "u", R("a", "b"), NOW)
+    assert h.compare("s", "u", R("b", "c", "a"), NOW).new_at == [1]
+def test_unchanged_scan_marks_nothing():
+    h = History()
+    h.compare("s", "u", R("a"), NOW)
+    assert h.compare("s", "u", R("a"), NOW).new_at == []
 def test_other_sender_gets_no_delta():
     h = History()
     h.compare("A", "u", R("a"), NOW)
