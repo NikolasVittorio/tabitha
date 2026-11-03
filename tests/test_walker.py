@@ -22,6 +22,7 @@ async def test_modal_escape(http_server):
 async def test_clean_has_no_fails(http_server):
     r, path, tested = await ids(http_server, "clean.html")
     assert "fail" not in r.values() and len(path) >= 3 and "2.1.2" in tested
+    assert "focus-obscured" not in r
 async def test_forged_focus_is_unverifiable(http_server):
     r, _, _ = await ids(http_server, "hostile.html")
     assert r.get("walk-unverifiable") == "needs_review"
@@ -39,6 +40,7 @@ async def test_changing_pixels_need_review(http_server):
 async def test_no_false_trap_or_unreachable(http_server, name):
     r, path, _ = await ids(http_server, name)
     assert path and "kbd-trap" not in r and "kbd-unreachable" not in r
+    assert "focus-obscured" not in r
 async def test_selectors_resolve_in_page_html(http_server):
     # the fixer targets these selectors with soupsieve
     async with open_page(f"{http_server}/broken.html", allow_ips=LOCAL) as (page, html):
@@ -57,3 +59,9 @@ async def test_walk_fits_deadline(http_server):
     t = time.monotonic()
     await ids(http_server, "many-plain.html")
     assert time.monotonic() - t < 25  # inside the 30 s page context
+async def test_focus_obscured_by_fixed_banner(http_server):
+    r, _, tested = await ids(http_server, "cookie-banner.html")
+    assert r.get("focus-obscured") == "needs_review" and "2.4.11" in tested
+async def test_partly_covered_focus_is_not_obscured(http_server):
+    r, _, _ = await ids(http_server, "banner-partial.html")
+    assert "focus-obscured" not in r

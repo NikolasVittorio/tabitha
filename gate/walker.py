@@ -5,7 +5,7 @@ from playwright.async_api import Page
 
 from gate.models import Finding
 
-TESTED = ["2.1.1", "2.1.2", "2.4.3", "2.4.7"]
+TESTED = ["2.1.1", "2.1.2", "2.4.3", "2.4.7", "2.4.11"]
 CAP = 10  # most kbd-unreachable findings listed
 # ponytail: walk-wide wall clock, read between stops, so one slow check can overshoot it and time spent before
 # walk (page load) is not counted; upgrade: derive it from the time left on open_page's deadline
@@ -106,6 +106,20 @@ async def _modal_check(page: Page) -> list[Finding]:
     return out
 
 
+async def _obscured(el) -> bool:
+    """True when the element is entirely under other content: no sample point (centre, corners inset 2px) in the
+    viewport hits it or a relative; also True when no point is in the viewport."""
+    # ponytail: elementFromPoint skips pointer-events:none overlays (a veil over the element goes unseen) and runs in
+    # the page's main world, so a page can fake it; hence needs_review only. upgrade: isolated-world hit test
+    return await el.evaluate("""e => {
+      const b = e.getBoundingClientRect();
+      return [[(b.left + b.right) / 2, (b.top + b.bottom) / 2], [b.left + 2, b.top + 2], [b.right - 2, b.top + 2],
+              [b.left + 2, b.bottom - 2], [b.right - 2, b.bottom - 2]]
+        .filter(([x, y]) => x >= 0 && y >= 0 && x < innerWidth && y < innerHeight)
+        .every(([x, y]) => { const t = document.elementFromPoint(x, y); return !t || !(e.contains(t) || t.contains(e)); });
+    }""")
+
+
 async def _focus_visible(page: Page, el) -> str | None:
     """'visible', 'invisible' or 'unverified' from blurred vs focused shots of the box + MARGIN; None if no box."""
     await el.evaluate("e => e.scrollIntoView({block: 'center'})")
@@ -163,6 +177,9 @@ async def walk(page: Page, max_presses: int = 50) -> tuple[list[Finding], list[s
             if sel in seen:
                 continue
             seen[sel] = await el.evaluate("e => !!e.closest('[aria-modal=\"true\"],dialog[open]')")
+            if await _obscured(el):  # before _check_focus, which scrolls the element to the centre
+                findings.append(_f("focus-obscured", "needs_review", "2.4.11", sel,
+                                   "This element is entirely hidden behind other content while it has keyboard focus."))
             if time.monotonic() - start < FOCUS_BUDGET_S:
                 checked += 1
                 await _check_focus(page, el, sel, findings)
