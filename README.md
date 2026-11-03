@@ -48,6 +48,35 @@ Set `PAYMENT_ENABLED=0` to switch payment off for the event: `fix` then runs fre
 
 Input is a single public http(s) URL. No crawling, no pasted HTML. Each page gets 30 s and 2 MB at most.
 
+## Calling it from your agent
+
+Other uAgents can skip chat and use the typed protocol `a11y_gate_check` (version 0.1.0). It is published in the lead's manifest. Send this model:
+
+```python
+class A11yCheckRequest(Model):
+    url: str
+    mode: Literal["check", "fix"] = "check"
+```
+
+The reply is the same `Report` model the lead builds for chat (see `gate/models.py`):
+
+```python
+@agent.on_interval(period=3600)
+async def ask(ctx: Context):
+    await ctx.send(LEAD, A11yCheckRequest(url="https://example.com"))
+@agent.on_message(Report)
+async def got(ctx: Context, sender: str, r: Report):
+    ctx.logger.info(f"{r.automated_status} {r.violation_count} error={r.error}")
+```
+
+Typed and chat calls share the same 5 free scans per sender per UTC day and the same 2 job slots. A diff longer than 50,000 characters is cut, and `note` says so. Errors come back in `Report.error`:
+
+- `bad_request`: the url is not an `http://` or `https://` string of at most 2048 characters.
+- `quota_exceeded`: the 5 free scans for today are used up.
+- `busy`: both job slots are taken. Try again in a minute; the attempt is not counted against the quota.
+- `payment_required`: `mode="fix"` while payment is on. Send `fix <url>` over the Chat Protocol to pay 0.5 TEST FET.
+- Scan errors such as `timeout` or `too_large` come through unchanged.
+
 ## Limits
 
 Every scan report ends with this disclaimer, with the numbers filled in:
