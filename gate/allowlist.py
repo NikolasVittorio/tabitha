@@ -16,9 +16,14 @@ def parse(html: str) -> BeautifulSoup:
     return BeautifulSoup(html, "html.parser", on_duplicate_attribute=_dup)
 
 
+DECL = re.compile(r"\s*[a-zA-Z-]+\s*:\s*[A-Za-z0-9#%.,()\s+-]*")
+
+
 def unparseable_style(v) -> bool:
-    # comments and CSS escapes hide declarations from a naive ";" split
-    return any(t in str(v or "") for t in ("/*", "*/", "\\"))
+    # Strict grammar: no quotes, comments, escapes, braces, "!", "&", "@", "/" or url(),
+    # so a naive ";" split can never disagree with a real CSS parser.
+    v = str(v or "")
+    return "url(" in v.lower() or any(p.strip() and not DECL.fullmatch(p) for p in v.split(";"))
 
 
 def _decls(v: str) -> list[tuple[str, str]]:
