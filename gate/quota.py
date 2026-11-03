@@ -13,3 +13,7 @@ class Quota:
             return False
         self._used[sender, day] += 1
         return True
+
+    def refund(self, sender: str, day: date) -> None:
+        if self._used[sender, day] > 0:
+            self._used[sender, day] -= 1

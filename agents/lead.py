@@ -42,10 +42,12 @@ def make_lead(seed: str, sub_addrs: dict[str, str]) -> Agent:
     @chat.on_message(ChatMessage)
     async def on_chat(ctx: Context, sender: str, msg: ChatMessage):
         await ctx.send(sender, ChatAcknowledgement(acknowledged_msg_id=msg.msg_id))
-        action = parse_chat(msg.text(), sender, quota, datetime.now(timezone.utc).date())
+        today = datetime.now(timezone.utc).date()
+        action = parse_chat(msg.text(), sender, quota, today)
         if isinstance(action, Reply):
             text = action.text
         elif sem.locked():  # no await between this check and `async with`, so no race
+            quota.refund(sender, today)  # rejected work is not charged
             text = BUSY
         else:  # ponytail: Fix(url) runs the scan+walk path until Task 9 adds payment and patching
             async with sem:

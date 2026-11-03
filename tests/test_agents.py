@@ -56,3 +56,33 @@ async def test_lead_busy_when_full():
     assert [m for to, m in ctx.sent if to in SUBS.values()] == dispatched
     for j in jobs:
         j.cancel()
+
+
+async def test_busy_refunds_quota():
+    lead = make_lead("seed", SUBS)
+    on_chat = lead._signed_message_handlers[Model.build_schema_digest(ChatMessage)]
+    ctx = Ctx()
+    msg = lambda: ChatMessage(content=[TextContent(text="check https://e.com")])
+    jobs = [asyncio.create_task(on_chat(ctx, f"user{i}", msg())) for i in range(2)]
+    for _ in range(5):
+        await asyncio.sleep(0)
+    for _ in range(5):  # a whole day's quota worth of Busy replies
+        await on_chat(ctx, "me", msg())
+        assert ctx.sent[-1][1].text() == BUSY
+    jobs[0].cancel()  # frees a slot
+    await asyncio.gather(jobs[0], return_exceptions=True)
+    before = len([1 for to, _ in ctx.sent if to in SUBS.values()])
+    job = asyncio.create_task(on_chat(ctx, "me", msg()))
+    for _ in range(5):
+        await asyncio.sleep(0)
+    assert len([1 for to, _ in ctx.sent if to in SUBS.values()]) == before + 2  # scan + walk dispatched
+    for j in (jobs[1], job):
+        j.cancel()
+
+
+def test_refund_never_below_zero():
+    from datetime import date
+    from gate.quota import Quota
+    q, d = Quota(limit=1), date(2026, 11, 4)
+    q.refund("s", d)
+    assert q.allow("s", d) and not q.allow("s", d)
