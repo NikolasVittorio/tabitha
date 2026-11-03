@@ -2,7 +2,7 @@ from pathlib import Path
 
 from gate.browser import open_html, open_page
 from gate.fixer import fix
-from gate.scanner import scan
+from gate.scanner import aria_tree, scan
 
 LOCAL = frozenset({"127.0.0.1"})
 
@@ -94,3 +94,10 @@ async def test_open_html_meta_refresh_cannot_replace_document(http_server):
         findings, _ = await scan(page)
         assert await page.evaluate("location.href") == base
     assert "button-name" in {f.rule_id for f in findings}
+
+
+async def test_aria_tree_shows_names():
+    async with open_html('<html lang="en"><body><button></button><button>Buy now</button></body></html>',
+                         "http://127.0.0.1/") as page:
+        t = await aria_tree(page)
+    assert 'button "Buy now"' in t and t.count("- button") == 2

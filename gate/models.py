@@ -26,6 +26,7 @@ class ScanResult(Model):
     tested: list[str]
     html: str | None
     error: str | None
+    tree: str = ""
 
 
 class WalkRequest(Model):
@@ -88,3 +89,5 @@ class Report(Model):
     focus_count: int = 0
     input_sha256: str = ""
     note: str = ""
+    tree_before: str = ""
+    tree_after: str = ""
