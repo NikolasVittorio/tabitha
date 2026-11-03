@@ -1,3 +1,4 @@
+import time
 import pytest
 from bs4 import BeautifulSoup
 from gate.browser import open_page
@@ -44,3 +45,15 @@ async def test_selectors_resolve_in_page_html(http_server):
         f, path, _ = await walk(page)
     soup = BeautifulSoup(html, "html.parser")
     assert path and all(soup.select_one(s) is not None for s in path + [x.selector for x in f])
+async def test_focus_checked_beyond_ten_stops(http_server):
+    async with open_page(f"{http_server}/many-plain.html", allow_ips=LOCAL) as (page, _):
+        f, _, _ = await walk(page)
+    assert sum(x.rule_id == "focus-not-visible" for x in f) == 15
+async def test_focus_budget_reports_partial(http_server, monkeypatch):
+    monkeypatch.setattr("gate.walker.FOCUS_BUDGET_S", 0.0)
+    r, _, _ = await ids(http_server, "many-plain.html")
+    assert r.get("focus-visibility-partial") == "needs_review" and "focus-not-visible" not in r
+async def test_walk_fits_deadline(http_server):
+    t = time.monotonic()
+    await ids(http_server, "many-plain.html")
+    assert time.monotonic() - t < 25  # inside the 30 s page context
