@@ -94,3 +94,25 @@ def test_delta_line_wording():
     r = build_report("j", "u", [F("a")], ["1.4.3"]).copy(update={"delta": Delta(since="09:05 UTC 04 Nov", before=3, after=2, gone=2, new=1)})
     line = "Since your last scan of this URL (09:05 UTC 04 Nov): automated issues 3 → 2 (2 no longer detected, 1 new)"
     assert render_chat(r).splitlines()[1] == line and not re.search(BANNED, line, re.I)
+def _fx(*pairs, outcome="fixed"):
+    return [Fix(rule_id=r, selector=s, outcome=outcome, note="") for r, s in pairs]
+def _fixed_report(fixes, n=7):
+    return render_chat(build_report("j", "u", [F(f"r{i}") for i in range(n)], ["1.4.3"], fixes=fixes, diff="d"))
+def test_issues_left_line():
+    t = _fixed_report(_fx(("r0", "#x"), ("r1", "#x"), ("r2", "#x"), ("r3", "#x")))
+    line = "Automated issues 7 → 3 after fixes (4 fixed and re-checked on the page source with scripts off)"
+    assert t.splitlines()[1] == line and not re.search(BANNED, line, re.I)
+def test_issues_left_none_fixed():
+    t = _fixed_report(_fx(("r0", "#x"), outcome="not_fixed"))
+    assert t.splitlines()[1] == "No automated issue was fixed; see fix outcomes below" and "→" not in t
+def test_issues_left_dedupes_pairs():
+    assert "7 → 6 after fixes (1 fixed" in _fixed_report(_fx(("r0", "#x"), ("r0", "#x")))
+def test_issues_left_ignores_uncounted_pairs():
+    nr = Finding(rule_id="nr", source="axe", status="needs_review", impact=None, selector="#x", wcag=[], message="")
+    r = build_report("j", "u", [F("r0"), F("r1"), nr], ["1.4.3"],
+                     fixes=_fx(("r0", "#x"), ("nr", "#x"), ("ghost", "#y")), diff="d")
+    assert render_chat(r).splitlines()[1].startswith("Automated issues 2 → 1 after fixes (1 fixed")
+def test_issues_left_absent_without_fixes():
+    assert "after fixes" not in render_chat(build_report("j", "u", [F("a")], ["1.4.3"]))
+def test_patch_label():
+    assert "Suggested patch (changed lines only; whitespace and tag formatting normalised):" in _fixed_report(_fx(("r0", "#x")))
