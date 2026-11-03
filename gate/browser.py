@@ -4,13 +4,9 @@ import ipaddress
 import socket
 from contextlib import asynccontextmanager
 from html import escape
-from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
 from playwright.async_api import Error as PlaywrightError, async_playwright
-
-
-AXE = Path(__file__).parent / "vendor" / "axe.min.js"
 
 
 class Blocked(Exception):
@@ -93,10 +89,6 @@ async def _context(timeout_s, allow_ips, max_bytes):
             ctx = await browser.new_context(accept_downloads=False, reduced_motion="reduce",
                                             service_workers="block",
                                             viewport={"width": 1280, "height": 800})
-            # init script: runs before page scripts in every frame, immune to CSP; the
-            # non-writable snapshot stops the page forging window.axe
-            await ctx.add_init_script(AXE.read_text("utf-8")
-                + ";Object.defineProperty(window,'__a11yAxeRun',{value:axe.run.bind(axe)})")
             await ctx.route("**/*", guard)
             await ctx.route_web_socket("**/*", lambda ws: ws.close())  # never open a real socket
             yield ctx, blocked

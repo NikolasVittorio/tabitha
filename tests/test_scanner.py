@@ -33,11 +33,17 @@ async def test_csp_script_src_none_still_scans(http_server):
     assert "color-contrast" in {f.rule_id for f in findings}
 
 
-async def test_same_origin_iframe_violation_found(http_server):
+async def test_iframe_surfaces_as_needs_review(http_server):
     async with open_page(f"{http_server}/frame.html", allow_ips=LOCAL) as (page, _):
         findings, _ = await scan(page)
-    bn = [f for f in findings if f.rule_id == "button-name"]
-    assert bn and bn[0].selector == "iframe" and bn[0].data["nested"]
+    ft = [f for f in findings if f.rule_id == "frame-tested"]
+    assert ft and ft[0].status == "needs_review"
+
+
+async def test_axe_configure_forgery_ignored(http_server):
+    async with open_page(f"{http_server}/forge.html", allow_ips=LOCAL) as (page, _):
+        findings, _ = await scan(page)
+    assert "button-name" in {f.rule_id for f in findings if f.status == "fail"}
 
 
 async def test_shadow_target_is_nested_and_unfixable(http_server):
@@ -49,6 +55,7 @@ async def test_shadow_target_is_nested_and_unfixable(http_server):
     assert fixes[0].outcome == "not_fixed"
 
 
-async def test_open_html_has_axe_snapshot():
-    async with open_html("<h1>x</h1>", "http://example.com/") as page:
-        assert await page.evaluate("typeof window.__a11yAxeRun") == "function"
+async def test_open_html_scans():
+    async with open_html("<button></button>", "http://example.com/") as page:
+        findings, _ = await scan(page)
+    assert "button-name" in {f.rule_id for f in findings}
