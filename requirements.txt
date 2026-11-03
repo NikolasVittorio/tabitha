@@ -1,0 +1,8 @@
+uagents==0.26.1
+uagents-core==0.4.12
+playwright==1.64.1
+beautifulsoup4==4.15.0
+cryptography==50.0.2
+cosmpy==0.12.2
+pytest==9.2.0
+pytest-asyncio==1.4.1.post1
