@@ -13,7 +13,7 @@ Demo page: `https://<gh-pages>/demo/broken.html`. Demo line: "Before: 'button. b
 | 0:25 | Chat with the lead in ASI:One: `fix <url>` | "A builder agent, or a person, sends our gate a URL." |
 | 0:40 | Reply line: keyboard walk result: N focus stops, keyboard trap found | "It walks the page like a keyboard user. Here focus gets trapped." |
 | 0:55 | Patch diff with per-element fix outcomes, then the line "N criteria need human review" | "The fixes are re-checked on the page source so nothing gets worse; image alt text needs the author. And it tells you how many criteria still need a human." |
-| 1:20 | Same page. [AUDIO: after] | "After: 'Buy now, button. image.' The report's 'What an AI agent sees' section shows the same before and after as an accessibility tree." |
+| 1:20 | Same page. [AUDIO: after] | "After: 'Buy now, button. image.' The report's 'What an AI agent sees' section shows the before and after accessibility tree of the page source (scripts off)." |
 | 1:35 | Receipt and TEST FET payment reference | "You get a signed log of exactly what was tested, bought with test tokens on Dorado." |
 | 1:50 | End card: address, repo | "Automated tools catch less than half of accessibility problems, so we list what was not tested. A11y Gate." |
 

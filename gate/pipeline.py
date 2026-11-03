@@ -83,6 +83,7 @@ async def run_gate(job_id: str, url: str, scan: ScanFn, walk: WalkFn, fix: FixFn
     if fix is not None and s.html is not None:
         try:
             fixes, diff, tb, ta = await _gate(job_id, url, s.html, s.findings, scan, fix)
+            tb = tb or s.tree  # no axe candidates: _gate scanned nothing, keep the first scan's tree
         except Exception:  # any rescan/fixer failure: still return the scan report
             fixes, diff, note, tb, ta = [], "", "fix step unavailable", s.tree, ""
     r = build_report(job_id, url, w.findings + s.findings, sorted(set(s.tested) | set(w.tested)),

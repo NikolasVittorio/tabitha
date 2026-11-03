@@ -15,7 +15,7 @@ A11y Gate is one uAgents Bureau with four agents. Talk to the lead; it hires the
 
 | Agent | Role | Address |
 |---|---|---|
-| lead (`a11y_gate`) | Chat Protocol + Payment Protocol, mailbox | `<LEAD_ADDRESS>` |
+| lead (`a11y_gate`) | Chat Protocol + Payment Protocol + typed `a11y_gate_check`, mailbox | `<LEAD_ADDRESS>` |
 | scanner | axe-core 4.14.0 in Playwright Chromium | `<SCANNER_ADDRESS>` |
 | walker | deterministic keyboard walk (up to 50 Tab presses) | `<WALKER_ADDRESS>` |
 | fixer | deterministic, rule-based patches (no LLM) | `<FIXER_ADDRESS>` |
@@ -41,10 +41,13 @@ Send a chat message to the lead (for example from ASI:One):
 
 - `check <url>`: free automated scan plus keyboard walk. 5 per sender per UTC day.
 - `fix <url>`: patch rechecked on the page source with scripts off (page scripts are not re-run) plus signed scan log, 0.5 TEST FET on Dorado testnet. Live charging is off.
+- `recheck <url>`: a free scan like `check`, sent after a fix. When you have scanned the same URL before, any scan reply adds a "Since your last scan" line: issue counts before and after, how many are no longer detected and how many are new.
+
+Scan replies also show the page's accessibility tree when it can be read, in the "What an AI agent sees" section. After a `fix` it shows the tree before and after the patch, both taken from the page source with scripts off.
 
 `fix` uses the Payment Protocol (seller role). The lead sends a `RequestPayment` for 0.5 TEST FET (`fet_direct`) to its own wallet address, with the job id as `reference` and a 300 s deadline. The buyer pays on Dorado **with the tx memo set to the reference** and sends `CommitPayment` with the tx hash and that reference. The lead checks the tx on chain (successful, memo equals the reference, a bank send of at least 0.5 TEST FET to its address, hash never used before). Only then does it run the fix, and it replies `CompletePayment` after the report is delivered. A tx that is not indexed yet gets "transaction not found yet - resend CommitPayment". Any other mismatch gets a "Payment not accepted: <reason>" chat line. In both cases the reference stays open until its deadline, so fix it and resend `CommitPayment`. In-memory; a restart mid-job loses the paid job (testnet). A reference is consumed once, by a verified payment, and only the sender who asked can use it. `CancelPayment` is sent only when a reference closes unpaid: at the deadline ("payment window expired", which also reaches chat-only callers) or after `RejectPayment`.
 
-Set `PAYMENT_ENABLED=0` to switch payment off for the event: `fix` then runs free, counts against the 5 free scans per day, and its reply is labelled "payment disabled for the event". The default is `1`.
+Set `PAYMENT_ENABLED=0` to switch payment off for the event: `fix` then runs free, counts against the 5 free scans per day, and its chat reply is labelled "payment disabled for the event". The default is `1`.
 
 Input is a single public http(s) URL. No crawling, no pasted HTML. Each page gets 30 s and 2 MB at most.
 
@@ -58,7 +61,7 @@ class A11yCheckRequest(Model):
     mode: Literal["check", "fix"] = "check"
 ```
 
-The reply is the same `Report` model the lead builds for chat (see `gate/models.py`):
+The reply is the same `Report` model the lead builds for chat (see `gate/models.py`). `delta` holds the "Since your last scan" counts for a repeat scan of the same URL (otherwise it is null); `tree_before` and `tree_after` hold the accessibility trees:
 
 ```python
 @agent.on_interval(period=3600)
@@ -77,13 +80,15 @@ Typed and chat calls share the same 5 free scans per sender per UTC day and the 
 - `payment_required`: `mode="fix"` while payment is on. Send `fix <url>` over the Chat Protocol to pay 0.5 TEST FET.
 - Scan errors such as `timeout` or `too_large` come through unchanged.
 
+When `error` is set, nothing was scanned; ignore the other fields. `automated_status` is then `not_scanned`.
+
 ## Limits
 
 Every scan report ends with this disclaimer, with the numbers filled in:
 
 > "Automated scan result: X violations found across Y tested WCAG 2.2 AA success criteria. Z criteria require manual/human testing and were NOT evaluated. This is not a WCAG conformance determination or legal compliance certification. Suggested code changes are unreviewed and must be checked by a developer before use."
 
-Automated tools find less than half of accessibility problems. In the GOV.UK GDS accessibility audit, the best automated tool found roughly 40% of the known issues; the rest needs a human. Logical focus order and obscured focus are reported as needing review, never as failures. Nothing is stored; logs hold only rule ids, hashes and job ids. Pages that redirect are scanned at the original URL; relative assets may not load, so results for them can be incomplete.
+Automated tools find less than half of accessibility problems. In the GOV.UK GDS accessibility audit, the best automated tool found roughly 40% of the known issues; the rest needs a human. Logical focus order and obscured focus are reported as needing review, never as failures. Nothing is stored except, in memory only, sha256 hashes used to compare a sender's rescans; logs hold only rule ids, hashes and job ids. Pages that redirect are scanned at the original URL; relative assets may not load, so results for them can be incomplete.
 
 ## Verify a scan log
 

@@ -31,15 +31,21 @@ def make_scanner(seed: str, lead_addr: str) -> Agent:
         if sender != lead_addr:
             return
         try:
-            if req.html is not None:
-                html = req.html
-                async with open_html(html, req.url) as page:
-                    findings, tested = await scan(page)
-                    tree = await aria_tree(page)
-            else:
-                async with open_page(req.url) as (page, html):
-                    findings, tested = await scan(page)
-                    tree = await aria_tree(page)
+            findings, tree = None, ""
+            try:
+                if req.html is not None:
+                    html = req.html
+                    async with open_html(html, req.url) as page:
+                        findings, tested = await scan(page)
+                        tree = await aria_tree(page)
+                else:
+                    async with open_page(req.url) as (page, html):
+                        findings, tested = await scan(page)
+                        tree = await aria_tree(page)
+            except TimeoutError:
+                if findings is None:
+                    raise
+                tree = ""  # the tree is optional: a stall after the scan keeps the findings
             res = ScanResult(job_id=req.job_id, findings=findings, tested=tested, html=html, error=None, tree=tree)
         except Exception as e:
             res = ScanResult(job_id=req.job_id, findings=[], tested=[], html=None, error=error_code(e))

@@ -137,6 +137,7 @@ async def test_typed_shares_chat_quota():
     before = subs_sent(ctx)
     await typed(lead)(ctx, "me", req())
     assert ctx.sent[-1][0] == "me" and ctx.sent[-1][1].error == "quota_exceeded"
+    assert ctx.sent[-1][1].automated_status == "not_scanned"
     assert subs_sent(ctx) == before
 
 
@@ -148,7 +149,7 @@ async def test_typed_busy_refunds_quota():
     before = subs_sent(ctx)
     for _ in range(6):  # more than a day's quota: each busy reply is refunded
         await typed(lead)(ctx, "me", req())
-        assert ctx.sent[-1][1].error == "busy"
+        assert ctx.sent[-1][1].error == "busy" and ctx.sent[-1][1].automated_status == "not_scanned"
     assert subs_sent(ctx) == before
     jobs[0].cancel()
     await asyncio.gather(jobs[0], return_exceptions=True)
@@ -172,6 +173,48 @@ async def test_typed_check_roundtrip():
     await asyncio.wait_for(job, 5)
     to, r = ctx.sent[-1]
     assert to == "me" and isinstance(r, Report) and r.error is None and r.url == "https://e.com"
+
+
+async def _roundtrip(lead, ctx):
+    job = asyncio.create_task(typed(lead)(ctx, "me", req()))
+    await spin()
+    reqs = {to: m for to, m in ctx.sent if to in SUBS.values()}
+    await handler(lead, ScanResult)(ctx, SUBS["scan"], ScanResult(
+        job_id=reqs[SUBS["scan"]].job_id, findings=[], tested=["1.1.1"], html="<p>", error=None))
+    await handler(lead, WalkResult)(ctx, SUBS["walk"], WalkResult(
+        job_id=reqs[SUBS["walk"]].job_id, findings=[], focus_path=[], tested=[], error=None))
+    await asyncio.wait_for(job, 5)
+    return ctx.sent[-1][1]
+
+
+async def test_typed_rescan_carries_delta():
+    lead, ctx = make_lead("seed", SUBS), Ctx()
+    first = await _roundtrip(lead, ctx)
+    ctx.sent.clear()  # the second roundtrip must read only its own sub-requests
+    second = await _roundtrip(lead, ctx)
+    assert first.delta is None and second.delta is not None
+
+
+async def test_scanner_returns_findings_when_tree_stalls(monkeypatch):
+    from contextlib import asynccontextmanager
+    from gate.models import Finding
+    f = Finding(rule_id="r", source="axe", status="fail", impact=None, selector="#a", wcag=[], message="m")
+
+    @asynccontextmanager
+    async def fake_open_html(html, url):  # same shape as gate.browser: the whole context sits under asyncio.timeout
+        async with asyncio.timeout(0.2):
+            yield object()
+
+    async def fake_scan(page): return [f], ["1.1.1"]
+    async def stalled_tree(page): await asyncio.sleep(10)
+    monkeypatch.setattr(subagents, "open_html", fake_open_html)
+    monkeypatch.setattr(subagents, "scan", fake_scan)
+    monkeypatch.setattr(subagents, "aria_tree", stalled_tree)
+    ctx = Ctx()
+    await handler(subagents.make_scanner("seed", LEAD), ScanRequest)(
+        ctx, LEAD, ScanRequest(job_id="j", url="https://e.com", html="<p>"))
+    r = ctx.sent[-1][1]
+    assert r.error is None and r.findings == [f] and r.tree == "" and r.html == "<p>"
 
 
 async def test_typed_diff_capped(monkeypatch):
