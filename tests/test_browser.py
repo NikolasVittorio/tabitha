@@ -53,3 +53,7 @@ async def test_dns_under_deadline(monkeypatch, http_server):
     with pytest.raises(TimeoutError):
         async with open_page(f"{http_server}/clean.html", allow_ips=LOCAL, timeout_s=1): pass
     assert time.monotonic() - t < 3
+async def test_late_oversized_fetch_surfaces_on_exit(http_server):
+    with pytest.raises(ValueError, match="too_large"):
+        async with open_page(f"{http_server}/late.html", allow_ips=LOCAL, max_bytes=2000) as (page, _):
+            await page.wait_for_timeout(1000)

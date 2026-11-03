@@ -51,6 +51,8 @@ async def _context(timeout_s, allow_ips, max_bytes):
             # Chromium follows redirects of routed requests internally, unchecked. So fetch
             # with max_redirects=0 and follow hops here, checking every hop.
             for _ in range(10):
+                if total > 10 * max_bytes:  # budget spent: fetch nothing more
+                    raise _TooLarge
                 # getaddrinfo blocks, keep it off the event loop
                 await asyncio.to_thread(check_url, url, allow_ips)
                 resp = await route.fetch(max_redirects=0, **kw)
@@ -88,6 +90,8 @@ async def _context(timeout_s, allow_ips, max_bytes):
             await ctx.route("**/*", guard)
             await ctx.route_web_socket("**/*", lambda ws: ws.close())  # never open a real socket
             yield ctx, blocked
+            if "too_large" in blocked:  # e.g. a fetch fired after load
+                raise ValueError("too_large")
         finally:
             await browser.close()
 
