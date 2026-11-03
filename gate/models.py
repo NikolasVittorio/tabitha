@@ -81,3 +81,4 @@ class Report(Model):
     receipt: Receipt | None
     error: str | None
     focus_count: int = 0
+    input_sha256: str = ""
