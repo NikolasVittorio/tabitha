@@ -69,8 +69,8 @@ async def _gate(job_id: str, url: str, html: str, findings: list[Finding], scan:
         old = str(parse(html))
     except ValueError:  # duplicate attributes: fall back to the raw html
         old = html
-    diff = "".join(difflib.unified_diff(old.splitlines(True), fr.patched_html.splitlines(True),
-                                        "original", "patched"))
+    diff = "" if fr.patched_html == html else "".join(difflib.unified_diff(
+        old.splitlines(True), fr.patched_html.splitlines(True), "original", "patched"))
     return fixes, diff, b.tree, tree
 
 

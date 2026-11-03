@@ -185,6 +185,15 @@ async def test_empty_baseline_tree_never_shows_live_tree():
     assert r.tree_before != "LIVE" and "LIVE" not in t and "Before:" not in t
 
 
+async def test_unchanged_source_has_no_diff():
+    html = "<P CLASS='a'>x</P>"  # serialises differently, but the fixer changes nothing
+    async def scan(r): return ScanResult(job_id=r.job_id, findings=[F("a")], tested=[], html=html, error=None)
+    async def walk(r): return WalkResult(job_id=r.job_id, findings=[], focus_path=[], tested=[], error=None)
+    async def fix(req): return FixResult(job_id=req.job_id, patched_html=req.html,
+                                         fixes=[Fix(rule_id="a", selector="x", outcome="needs_author", note="")])
+    assert (await run_gate("j", "https://e.com", scan, walk, fix)).diff == ""
+
+
 async def test_patch_shows_changed_lines_only(http_server):
     from gate.browser import open_html, open_page
     from gate.fixer import fix as real_fix

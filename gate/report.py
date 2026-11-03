@@ -54,7 +54,9 @@ def render_chat(r: Report, max_diff_chars: int = 8000) -> str:
     fails = [f for f in r.findings if f.status in ("fail", "needs_author")]
     out = [f"Status: {r.automated_status} ({r.violation_count} violations)"]
     if r.fixes:
-        k = len({(x.rule_id, x.selector) for x in r.fixes if x.outcome == "fixed"})
+        # only fixed pairs that are counted violations, so the subtraction matches violation_count
+        k = len({(x.rule_id, x.selector) for x in r.fixes if x.outcome == "fixed"}
+                & {(f.rule_id, f.selector) for f in fails})
         out.append(f"Automated issues {r.violation_count} → {r.violation_count - k} after fixes ({k} fixed and "
                    "re-checked on the page source with scripts off)" if k else
                    "No automated issue was fixed; see fix outcomes below")
