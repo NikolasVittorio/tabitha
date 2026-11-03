@@ -62,3 +62,10 @@ def test_newline_in_inline_value():
 def test_needs_author_listed():
     t = render_chat(build_report("j", "u", [F("image-alt", "needs_author")], []))
     assert "image-alt" in t and "` #x `" in t
+def test_cr_and_crlf_stay_in_span():
+    for p in ("a\r\n\r\n# certified", "a\r\r# certified", "a\n\n# certified"):
+        e = rep(error=p)
+        assert "certified" in e and "\r" not in e.split("\n")[0] and len(e.split("\n")) == 2
+        assert not re.search(BANNED, strip_code(e), re.I)
+        t = rep(sel=p)
+        assert "\r" not in t and not re.search(BANNED, strip_code(t), re.I)

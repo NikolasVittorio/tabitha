@@ -18,7 +18,7 @@ def _ticks(v: str, n: int = 1) -> str:
 
 
 def _code(v: str) -> str:
-    v = " ".join(v.split("\n"))
+    v = re.sub(r"[\r\n]+", " ", v)
     t = _ticks(v)
     return f"{t} {v} {t}"
 
