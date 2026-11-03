@@ -24,7 +24,7 @@ def error_code(e: Exception) -> str:
 
 # Each subagent serves only the lead: other senders would skip the quota and chat validation.
 def make_scanner(seed: str, lead_addr: str) -> Agent:
-    agent = Agent(name="a11y_scanner", seed=seed)
+    agent = Agent(name="a11y_scanner", seed=seed, enable_agent_inspector=False)
 
     @agent.on_message(ScanRequest, replies=ScanResult)
     async def on_scan(ctx: Context, sender: str, req: ScanRequest):
@@ -47,7 +47,7 @@ def make_scanner(seed: str, lead_addr: str) -> Agent:
 
 
 def make_walker(seed: str, lead_addr: str) -> Agent:
-    agent = Agent(name="a11y_walker", seed=seed)
+    agent = Agent(name="a11y_walker", seed=seed, enable_agent_inspector=False)
 
     @agent.on_message(WalkRequest, replies=WalkResult)
     async def on_walk(ctx: Context, sender: str, req: WalkRequest):
@@ -65,7 +65,7 @@ def make_walker(seed: str, lead_addr: str) -> Agent:
 
 
 def make_fixer(seed: str, lead_addr: str) -> Agent:
-    agent = Agent(name="a11y_fixer", seed=seed)
+    agent = Agent(name="a11y_fixer", seed=seed, enable_agent_inspector=False)
 
     @agent.on_message(FixRequest, replies=FixResult)
     async def on_fix(ctx: Context, sender: str, req: FixRequest):

@@ -3,6 +3,7 @@
 __pycache__/
 .pytest_cache/
 .superpowers/
+.claude/
 # local research notes, not part of the public repo
 quiet-quack.md
 quiet-quack-claude-code-pressure-test.md

@@ -48,6 +48,8 @@ def render_chat(r: Report, max_diff_chars: int = 8000) -> str:
     if r.note:
         out.append(f"Note: {r.note}")
     if r.fixes:
+        out.append("Fix outcomes are checked on the page source with scripts off; "
+                   "scripts on the live page may change the result.")
         out.append("Fixes:")
         out += [f"- {x.rule_id} {_code(x.selector)}: {x.outcome}" for x in r.fixes]
     if r.diff:

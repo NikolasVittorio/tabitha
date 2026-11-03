@@ -118,3 +118,16 @@ async def test_rescan_cloak_cannot_forge_fixed(http_server):
     r = await run_gate("j", f"{http_server}/cloak.html", scan, walk, fix)
     assert "button-name" in {f.rule_id for f in r.findings}
     assert [x.outcome for x in r.fixes if x.rule_id == "button-name"] == ["not_fixed"]
+
+
+async def test_fixed_is_per_selector():
+    def C(sel): return Finding(rule_id="color-contrast", source="axe", status="fail", impact=None, selector=sel, wcag=[], message="")
+    async def scan(r):
+        if r.html is None:
+            return ScanResult(job_id=r.job_id, findings=[C("#p1"), C("#p2")], tested=[], html="<p>0</p>", error=None)
+        return ScanResult(job_id=r.job_id, findings=[C("#p2")], tested=[], html=r.html, error=None)  # only #p1 lands
+    async def walk(r): return WalkResult(job_id=r.job_id, findings=[], focus_path=[], tested=[], error=None)
+    async def fix(req): return FixResult(job_id=req.job_id, patched_html=req.html + "X",
+                                         fixes=[Fix(rule_id="color-contrast", selector=s, outcome="fixed", note="") for s in ("#p1", "#p2")])
+    r = await run_gate("j", "https://e.com", scan, walk, fix)
+    assert {f.selector: f.outcome for f in r.fixes} == {"#p1": "fixed", "#p2": "not_fixed"}

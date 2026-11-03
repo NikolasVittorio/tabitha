@@ -171,11 +171,11 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=dorado_get_tx) -> Age
                                "transaction failed, below 0.5 TEST FET, wrong recipient or already used")
         del pending_payments[job_id]
         p["timer"].cancel()
-        await ctx.send(sender, CompletePayment(transaction_id=tx_hash))
-        # ponytail: paid jobs wait for a slot instead of getting BUSY, so a payment is never lost
-        async with sem:
+        # ponytail: in-memory, testnet only; a restart mid-job loses the paid job. Persist before real money.
+        async with sem:  # paid jobs wait for a slot instead of getting BUSY
             text = await run_job(ctx, job_id, p["url"], True)
         await say(ctx, sender, text)
+        await ctx.send(sender, CompletePayment(transaction_id=tx_hash))  # only after the report is delivered
 
     @pay.on_message(RejectPayment)
     async def on_reject(ctx: Context, sender: str, msg: RejectPayment):

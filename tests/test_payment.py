@@ -9,6 +9,7 @@ from uagents_core.contrib.protocols.payment import (
 
 import agents.lead as lead_mod
 from gate.payment import verify_fet_payment, PRICE_AFET
+from gate.report import build_report
 
 TO = "fetch1lead"
 M = "job-1"
@@ -79,11 +80,9 @@ def completed(ctx, who):
     return any(to == who and isinstance(m, CompletePayment) for to, m in ctx.sent)
 
 
-def nothing_terminal_before_complete(ctx, who):
-    msgs = [m for to, m in ctx.sent if to == who]
-    before = msgs[:[isinstance(m, CompletePayment) for m in msgs].index(True)]
-    return not any(isinstance(m, CancelPayment) or (isinstance(m, ChatMessage) and
-                   any(isinstance(c, EndSessionContent) for c in m.content)) for m in before)
+def running_not_closed(ctx, who):
+    """Payment accepted, job in flight: nothing terminal yet, and CompletePayment waits for the report."""
+    return not completed(ctx, who) and cancels(ctx, who) == 0 and ends(ctx, who) == 0
 
 
 def cancels(ctx, who):
@@ -115,7 +114,7 @@ async def test_wrong_sender_rejected_then_owner_pays():
     assert dispatched(ctx) == []
     job = asyncio.create_task(on_commit(ctx, "alice", commit(req, "h1")))  # reference not consumed by mallory
     await settle()
-    assert completed(ctx, "alice") and len(dispatched(ctx)) == 2  # scan + walk
+    assert running_not_closed(ctx, "alice") and len(dispatched(ctx)) == 2  # scan + walk
     job.cancel()
 
 
@@ -129,11 +128,11 @@ async def test_two_senders_race_for_one_tx_memo_decides():
     assert not completed(ctx, "bob") and dispatched(ctx) == []
     job_a = asyncio.create_task(on_commit(ctx, "alice", commit(ra, "h1")))
     await settle()
-    assert completed(ctx, "alice")
+    assert running_not_closed(ctx, "alice") and len(dispatched(ctx)) == 2
     pay("h2", rb)  # bob's job stayed open after the rejection; he can still pay
     job_b = asyncio.create_task(on_commit(ctx, "bob", commit(rb, "h2")))
     await settle()
-    assert completed(ctx, "bob") and nothing_terminal_before_complete(ctx, "bob")
+    assert running_not_closed(ctx, "bob") and len(dispatched(ctx)) == 4
     job_a.cancel(), job_b.cancel()
 
 
@@ -145,7 +144,7 @@ async def test_lookup_error_then_same_hash_succeeds():
     assert "Payment not accepted: transaction lookup failed" in ctx.sent[-1][1].text()
     job = asyncio.create_task(on_commit(ctx, "alice", commit(req, "h1")))
     await settle()
-    assert completed(ctx, "alice") and nothing_terminal_before_complete(ctx, "alice")
+    assert running_not_closed(ctx, "alice") and len(dispatched(ctx)) == 2
     job.cancel()
 
 
@@ -158,8 +157,21 @@ async def test_lookup_miss_is_retryable():
     pay("h1", req)
     job = asyncio.create_task(on_commit(ctx, "alice", commit(req, "h1")))
     await settle()
-    assert completed(ctx, "alice") and len(dispatched(ctx)) == 2
+    assert running_not_closed(ctx, "alice") and len(dispatched(ctx)) == 2
     job.cancel()
+
+
+async def test_complete_payment_only_after_report_delivered(monkeypatch):
+    async def fake_gate(job_id, url, *a):
+        return build_report(job_id, url, [], [], error="timeout")
+    monkeypatch.setattr(lead_mod, "run_gate", fake_gate)
+    pay, on_chat, on_commit, ctx = setup()
+    req = await request(on_chat, ctx, "alice")
+    pay("h1", req)
+    await on_commit(ctx, "alice", commit(req, "h1"))
+    report, done = [m for to, m in ctx.sent if to == "alice"][-2:]
+    assert isinstance(report, ChatMessage) and report.text().startswith("Error:")
+    assert isinstance(done, CompletePayment) and done.transaction_id == "h1"
 
 
 async def test_expired_reference_rejected(monkeypatch):
