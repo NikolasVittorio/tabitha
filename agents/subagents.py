@@ -22,13 +22,14 @@ def error_code(e: Exception) -> str:
     return "internal_error"
 
 
-# ponytail: subagents accept requests from any sender. In the Bureau they have no public
-# endpoint, so only in-process agents reach them; add a sender allowlist if they get one.
-def make_scanner(seed: str) -> Agent:
+# Each subagent serves only the lead: other senders would skip the quota and chat validation.
+def make_scanner(seed: str, lead_addr: str) -> Agent:
     agent = Agent(name="a11y_scanner", seed=seed)
 
     @agent.on_message(ScanRequest, replies=ScanResult)
     async def on_scan(ctx: Context, sender: str, req: ScanRequest):
+        if sender != lead_addr:
+            return
         try:
             if req.html is not None:
                 html = req.html
@@ -45,11 +46,13 @@ def make_scanner(seed: str) -> Agent:
     return agent
 
 
-def make_walker(seed: str) -> Agent:
+def make_walker(seed: str, lead_addr: str) -> Agent:
     agent = Agent(name="a11y_walker", seed=seed)
 
     @agent.on_message(WalkRequest, replies=WalkResult)
     async def on_walk(ctx: Context, sender: str, req: WalkRequest):
+        if sender != lead_addr:
+            return
         try:
             async with open_page(req.url) as (page, _):
                 findings, focus_path, tested = await walk(page)
@@ -61,11 +64,13 @@ def make_walker(seed: str) -> Agent:
     return agent
 
 
-def make_fixer(seed: str) -> Agent:
+def make_fixer(seed: str, lead_addr: str) -> Agent:
     agent = Agent(name="a11y_fixer", seed=seed)
 
     @agent.on_message(FixRequest, replies=FixResult)
     async def on_fix(ctx: Context, sender: str, req: FixRequest):
+        if sender != lead_addr:
+            return
         try:
             rules = set(req.rules) if req.rules is not None else None
             html, fixes = await asyncio.to_thread(fix, req.html, req.findings, rules)

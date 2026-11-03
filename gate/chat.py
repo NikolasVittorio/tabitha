@@ -28,6 +28,7 @@ def parse_chat(text: str, sender: str, quota: Quota, today: date) -> Scan | Fix 
     m = re.search(r"https?://\S+", text)
     if not m:
         return Reply(USAGE)
-    if re.match(r"\s*fix\b", text, re.I):
-        return Fix(m.group())  # paid, so no quota
-    return Scan(m.group()) if quota.allow(sender, today) else Reply(QUOTA_REPLY)
+    # ponytail: Fix charges scan quota until Task 11 adds payment; remove then
+    if not quota.allow(sender, today):
+        return Reply(QUOTA_REPLY)
+    return Fix(m.group()) if re.match(r"\s*fix\b", text, re.I) else Scan(m.group())
