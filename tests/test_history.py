@@ -31,3 +31,9 @@ def test_stores_only_hashes():
     h.compare("sender-addr", "https://secret.example/p", R("#secret-sel"), NOW)
     s = repr(h.__dict__)
     assert not any(x in s for x in ("sender-addr", "secret.example", "secret-sel"))
+def test_oversized_scan_not_stored():
+    h = History()
+    h.compare("s", "u", R("a"), NOW)
+    assert h.compare("s", "u", R(*[f"#n{i}" for i in range(501)]), NOW) is None
+    assert h.d == {}
+    assert h.compare("s", "u", R("a"), NOW) is None
