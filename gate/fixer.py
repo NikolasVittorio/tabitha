@@ -2,7 +2,7 @@ from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 
-from gate.allowlist import parse, patch_violations
+from gate.allowlist import parse, patch_violations, unparseable_style
 from gate.contrast import fix_fg
 from gate.models import Finding, Fix
 
@@ -38,6 +38,8 @@ def _apply(soup: BeautifulSoup, f: Finding) -> tuple[str, str]:
         head.append(tag)
         return "fixed", "title inserted; verify wording"
     if r == "color-contrast":
+        if unparseable_style(el.get("style")):
+            return "not_fixed", "unparseable inline style"
         d = f.data
         try:
             target = float(str(d["expectedContrastRatio"]).split(":")[0])

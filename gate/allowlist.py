@@ -16,6 +16,11 @@ def parse(html: str) -> BeautifulSoup:
     return BeautifulSoup(html, "html.parser", on_duplicate_attribute=_dup)
 
 
+def unparseable_style(v) -> bool:
+    # comments and CSS escapes hide declarations from a naive ";" split
+    return any(t in str(v or "") for t in ("/*", "*/", "\\"))
+
+
 def _decls(v: str) -> list[tuple[str, str]]:
     # ponytail: split on ";" only; anything exotic fails the strict value regex or the diff check
     return [(k.strip().lower(), x.strip().lower()) for k, x in (p.split(":", 1) for p in (v or "").split(";") if ":" in p)]
@@ -50,6 +55,9 @@ def _attr_violations(x: Tag, y: Tag) -> list[str]:
         elif k == "tabindex" and not (nvs.lstrip("-").isdigit() and int(nvs) >= -1):
             out.append(f"{x.name}: tabindex below -1 or invalid")
         elif k == "style":
+            if unparseable_style(ov) or unparseable_style(nv):
+                out.append(f"{x.name}: unparseable inline style")
+                continue
             o, n = _decls(ov), _decls(nv)
             if "!" in nvs:
                 out.append(f"{x.name}: !important in style")
