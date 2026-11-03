@@ -30,9 +30,12 @@ def sign_receipt(r: Report, key_hex: str, now: datetime) -> Receipt:
     return Receipt(payload_json=payload, signature_hex=sk.sign(payload.encode()).hex(), public_key_hex=pub.hex())
 
 
-def verify_receipt(rc: Receipt) -> bool:
+def verify_receipt(rc: Receipt, trusted_pubkey_hex: str) -> bool:
+    # The embedded key is untrusted; only the caller's pinned key counts.
+    if rc.public_key_hex != trusted_pubkey_hex:
+        return False
     try:
-        Ed25519PublicKey.from_public_bytes(bytes.fromhex(rc.public_key_hex)).verify(
+        Ed25519PublicKey.from_public_bytes(bytes.fromhex(trusted_pubkey_hex)).verify(
             bytes.fromhex(rc.signature_hex), rc.payload_json.encode())
         return True
     except (InvalidSignature, ValueError):
