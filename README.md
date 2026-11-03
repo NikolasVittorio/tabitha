@@ -86,7 +86,7 @@ Page: `demo/broken.html` (served from GitHub Pages). Buyer: `python -m agents.de
 
 1. Broken theme page, with pre-recorded screen-reader audio.
 2. Focus-path overlay showing focus trapped in a modal.
-3. Patch, then the counter "Automated issues 14 → 0" and "N criteria need human review".
+3. Patch, then the counter "Automated issues N → M (image alt text needs the author)" and "N criteria need human review".
 4. Audio after the fix.
 5. Receipt and the TEST FET payment reference.
 

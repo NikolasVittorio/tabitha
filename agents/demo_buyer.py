@@ -9,7 +9,7 @@ Needs a mailbox (connect it via the Inspector link in the log) so the lead can r
 import asyncio
 import os
 import sys
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from uagents import Agent, Context, Protocol
 from uagents_core.contrib.protocols.chat import (
@@ -20,6 +20,7 @@ from uagents_core.contrib.protocols.payment import (
 )
 
 DENOM = "atestfet"
+MAX_FET = Decimal("0.5")  # hard cap per payment
 MAX_COMMITS = 5
 WAIT_S = 5  # pause before resending CommitPayment
 NOT_YET = "transaction not found yet"
@@ -28,9 +29,17 @@ NOT_YET = "transaction not found yet"
 def payment_plan(req: RequestPayment) -> tuple[str, int, str]:
     """(recipient, amount in atestfet, memo) for a RequestPayment. Memo == reference, which the lead requires."""
     fund = next((f for f in req.accepted_funds if f.currency == "FET" and f.payment_method == "fet_direct"), None)
-    if fund is None or not req.reference:
-        raise ValueError("RequestPayment needs a FET fet_direct fund and a reference")
-    return req.recipient, int(Decimal(fund.amount) * 10**18), req.reference
+    if fund is None or not req.reference or len(req.reference) > 128:
+        raise ValueError("RequestPayment needs a FET fet_direct fund and a reference of at most 128 chars")
+    if len(fund.amount) > 32:
+        raise ValueError("amount string too long")
+    try:
+        amt = Decimal(fund.amount)
+    except InvalidOperation:
+        raise ValueError("amount is not a number") from None
+    if not amt.is_finite() or amt <= 0 or amt > MAX_FET:
+        raise ValueError(f"amount must be above 0 and at most {MAX_FET} FET")
+    return req.recipient, int(amt * 10**18), req.reference
 
 
 def should_resend(reply_text: str, attempts: int) -> bool:
@@ -54,7 +63,8 @@ def make_buyer(seed: str, lead: str, url: str) -> Agent:
     agent = Agent(name="a11y_demo_buyer", seed=seed, mailbox=True)
     chat = Protocol(spec=chat_protocol_spec)
     payp = Protocol(spec=payment_protocol_spec, role="buyer")
-    state = {"commit": None, "sends": 0}
+    state = {"commit": None, "sends": 0, "want": False, "paying": False}
+    agent.state = state  # exposed for tests
 
     async def commit(ctx: Context):
         state["sends"] += 1
@@ -64,11 +74,19 @@ def make_buyer(seed: str, lead: str, url: str) -> Agent:
     async def start(ctx: Context):
         print(f"buyer: {agent.address}", flush=True)
         await asyncio.sleep(3)  # let the mailbox connect
+        state["want"] = True
         await ctx.send(lead, ChatMessage(content=[TextContent(text=f"fix {url}")]))
 
     @payp.on_message(RequestPayment)
     async def on_request(ctx: Context, sender: str, msg: RequestPayment):
-        recipient, amount, memo = payment_plan(msg)
+        if sender != lead or not state["want"]:  # only the lead, only for our own outstanding fix
+            return
+        try:
+            recipient, amount, memo = payment_plan(msg)
+        except ValueError as e:
+            print(f"payment request rejected: {e}", flush=True)
+            return
+        state["want"], state["paying"] = False, True  # before any await: pay at most once, never reset
         print(f"paying {amount} {DENOM} to {recipient} with memo {memo}", flush=True)
         tx_hash = await asyncio.to_thread(pay, recipient, amount, memo)
         print(f"tx confirmed: {tx_hash}", flush=True)
@@ -76,6 +94,8 @@ def make_buyer(seed: str, lead: str, url: str) -> Agent:
             funds=Funds(amount=msg.accepted_funds[0].amount, currency="FET", payment_method="fet_direct"),
             recipient=recipient, transaction_id=tx_hash, reference=memo)
         await commit(ctx)
+
+    agent.on_request = on_request  # exposed for tests
 
     @payp.on_message(CompletePayment)
     async def on_complete(ctx: Context, sender: str, msg: CompletePayment):
