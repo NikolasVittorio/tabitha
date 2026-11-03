@@ -40,7 +40,7 @@ def build_report(job_id, url, findings, tested, fixes=[], diff="", error=None, f
     un = untested(tested)
     return Report(
         job_id=job_id, url=url,
-        automated_status="violations_found" if v else "no_automated_violations_detected",
+        automated_status="not_scanned" if error else "violations_found" if v else "no_automated_violations_detected",
         violation_count=v, findings=findings, tested=list(tested), untested=un,
         fixes=list(fixes), diff=diff,
         disclaimer=DISCLAIMER.format(x=v, y=len(tested), z=len(un)),

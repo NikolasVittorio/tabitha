@@ -28,10 +28,10 @@ class History:
             self.d.pop(key, None)
             return None
         prev = self.d.pop(key, None)  # pop + re-insert moves it to the newest slot
-        self.d[key] = (cur, r.violation_count, now.strftime("%H:%M UTC %d %b"))
+        self.d[key] = (cur, len(cur), now.strftime("%H:%M UTC %d %b"))
         while len(self.d) > self.max:
             self.d.popitem(last=False)
         if prev is None:
             return None
         ids, count, since = prev
-        return Delta(since=since, before=count, after=r.violation_count, gone=len(ids - cur), new=len(cur - ids))
+        return Delta(since=since, before=count, after=len(cur), gone=len(ids - cur), new=len(cur - ids))

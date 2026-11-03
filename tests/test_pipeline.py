@@ -162,3 +162,24 @@ async def test_fix_trees_are_baseline_and_kept_rescan():
 async def test_rejected_fix_has_no_false_after_tree():
     r = await _tree_run(_fix_a, [F("a"), F("new")])
     assert r.tree_after == r.tree_before == "B"
+
+
+async def test_fix_without_candidates_keeps_scan_tree():
+    async def scan(r): return ScanResult(job_id=r.job_id, findings=[], tested=[], html="<p>0</p>", error=None, tree="- button")
+    async def walk(r): return WalkResult(job_id=r.job_id, findings=[], focus_path=[], tested=[], error=None)
+    r = await run_gate("j", "https://e.com", scan, walk, _fix_a)
+    assert r.tree_before == "- button" and r.tree_after == ""
+
+
+async def test_empty_baseline_tree_never_shows_live_tree():
+    from gate.report import render_chat
+    async def scan(r):
+        if r.html is None:
+            return ScanResult(job_id=r.job_id, findings=[F("a")], tested=[], html="<p>0</p>", error=None, tree="LIVE")
+        if r.job_id.endswith(":base"):  # scripts-off baseline whose snapshot timed out
+            return ScanResult(job_id=r.job_id, findings=[F("a")], tested=[], html=r.html, error=None, tree="")
+        return ScanResult(job_id=r.job_id, findings=[], tested=[], html=r.html, error=None, tree="AFTER")
+    async def walk(r): return WalkResult(job_id=r.job_id, findings=[], focus_path=[], tested=[], error=None)
+    r = await run_gate("j", "https://e.com", scan, walk, _fix_a)
+    t = render_chat(r)
+    assert r.tree_before != "LIVE" and "LIVE" not in t and "Before:" not in t

@@ -20,13 +20,13 @@ def _fails(findings: list[Finding]) -> set[tuple[str, str]]:
 
 
 async def _gate(job_id: str, url: str, html: str, findings: list[Finding], scan: ScanFn, fix: FixFn
-                ) -> tuple[list[Fix], str, str, str]:
+                ) -> tuple[list[Fix], str, str | None, str | None]:
     """Apply fixes, keep only rules whose rescan adds no new (rule, selector) fail. Returns (fixes, diff, tree_before, tree_after)."""
     axe = [f.copy(update={"data": {**f.data, "url": url}}) if f.rule_id == "document-title" else f
            for f in findings if f.source == "axe"]
     cand = sorted({f.rule_id for f in axe if f.status in ("fail", "needs_author")})
     if not cand:
-        return [], "", "", ""
+        return [], "", None, None  # no baseline attempted: run_gate falls back to the first scan's tree
     # Like-for-like baseline: the original html scanned the same way as every rescan (about:blank,
     # JS off), so neither page scripts nor the render mode can fake a drop in violations.
     b = await scan(ScanRequest(job_id=f"{job_id}:base", url=url, html=html))
@@ -83,6 +83,8 @@ async def run_gate(job_id: str, url: str, scan: ScanFn, walk: WalkFn, fix: FixFn
     if fix is not None and s.html is not None:
         try:
             fixes, diff, tb, ta = await _gate(job_id, url, s.html, s.findings, scan, fix)
+            if tb is None:  # only then: an empty baseline tree stays empty, never the live tree
+                tb, ta = s.tree, ""
         except Exception:  # any rescan/fixer failure: still return the scan report
             fixes, diff, note, tb, ta = [], "", "fix step unavailable", s.tree, ""
     r = build_report(job_id, url, w.findings + s.findings, sorted(set(s.tested) | set(w.tested)),

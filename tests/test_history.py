@@ -37,3 +37,8 @@ def test_oversized_scan_not_stored():
     assert h.compare("s", "u", R(*[f"#n{i}" for i in range(501)]), NOW) is None
     assert h.d == {}
     assert h.compare("s", "u", R("a"), NOW) is None
+def test_counts_are_distinct_issues():
+    h = History()
+    h.compare("s", "u", R("a", "a", "b"), NOW)  # duplicate rule/selector counts once, like gone/new
+    d = h.compare("s", "u", R("b"), NOW)
+    assert (d.before, d.after, d.gone, d.new) == (2, 1, 1, 0)

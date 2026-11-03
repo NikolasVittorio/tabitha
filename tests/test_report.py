@@ -13,6 +13,8 @@ def test_violations_counted():
     r = build_report("j", "u", [F("color-contrast"), F("x", "needs_review")], ["1.4.3"])
     assert r.automated_status == "violations_found" and r.violation_count == 1
     assert build_report("j", "u", [F("image-alt", "needs_author")], []).violation_count == 1
+def test_error_report_not_scanned():
+    assert build_report("j", "u", [], [], error="busy").automated_status == "not_scanned"
 def test_diff_truncated():
     r = build_report("j", "u", [], [], diff="x" * 9000)
     assert "truncated" in render_chat(r)
