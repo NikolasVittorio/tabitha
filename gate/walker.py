@@ -107,16 +107,18 @@ async def _modal_check(page: Page) -> list[Finding]:
 
 
 async def _obscured(el) -> bool:
-    """True when the element is entirely under other content: no sample point (centre, corners inset 2px) in the
-    viewport hits it or a relative; also True when no point is in the viewport."""
-    # ponytail: elementFromPoint skips pointer-events:none overlays (a veil over the element goes unseen) and runs in
-    # the page's main world, so a page can fake it; hence needs_review only. upgrade: isolated-world hit test
+    """True when the element is entirely under other content or outside the viewport: its box clipped to the viewport
+    is empty, or no sample point (centre and corners inset 2px, of that clipped box) hits it or a relative."""
+    # ponytail: elementFromPoint skips pointer-events:none overlays (a veil over the element goes unseen), returns the
+    # ancestor for an ancestor ::before/::after veil (so that is missed too), and runs in the page's main world, so a
+    # page can fake it; hence needs_review only. upgrade: isolated-world hit test
     return await el.evaluate("""e => {
       const b = e.getBoundingClientRect();
-      return [[(b.left + b.right) / 2, (b.top + b.bottom) / 2], [b.left + 2, b.top + 2], [b.right - 2, b.top + 2],
-              [b.left + 2, b.bottom - 2], [b.right - 2, b.bottom - 2]]
+      const l = Math.max(b.left, 0), t = Math.max(b.top, 0), r = Math.min(b.right, innerWidth), d = Math.min(b.bottom, innerHeight);
+      if (r < l || d < t) return true;
+      return [[(l + r) / 2, (t + d) / 2], [l + 2, t + 2], [r - 2, t + 2], [l + 2, d - 2], [r - 2, d - 2]]
         .filter(([x, y]) => x >= 0 && y >= 0 && x < innerWidth && y < innerHeight)
-        .every(([x, y]) => { const t = document.elementFromPoint(x, y); return !t || !(e.contains(t) || t.contains(e)); });
+        .every(([x, y]) => { const h = document.elementFromPoint(x, y); return !h || !(e.contains(h) || h.contains(e)); });
     }""")
 
 
@@ -179,7 +181,8 @@ async def walk(page: Page, max_presses: int = 50) -> tuple[list[Finding], list[s
             seen[sel] = await el.evaluate("e => !!e.closest('[aria-modal=\"true\"],dialog[open]')")
             if await _obscured(el):  # before _check_focus, which scrolls the element to the centre
                 findings.append(_f("focus-obscured", "needs_review", "2.4.11", sel,
-                                   "This element is entirely hidden behind other content while it has keyboard focus."))
+                                   "While it has keyboard focus, this element cannot be seen: it is entirely covered by "
+                                   "other content or outside the visible page."))
             if time.monotonic() - start < FOCUS_BUDGET_S:
                 checked += 1
                 await _check_focus(page, el, sel, findings)

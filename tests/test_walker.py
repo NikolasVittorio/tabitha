@@ -65,3 +65,15 @@ async def test_focus_obscured_by_fixed_banner(http_server):
 async def test_partly_covered_focus_is_not_obscured(http_server):
     r, _, _ = await ids(http_server, "banner-partial.html")
     assert "focus-obscured" not in r
+async def test_offscreen_skip_link_is_obscured(http_server):
+    r, _, _ = await ids(http_server, "offscreen-skip.html")
+    assert r.get("focus-obscured") == "needs_review"
+async def test_element_taller_than_viewport_is_not_obscured(http_server):
+    r, path, _ = await ids(http_server, "tall-button.html")
+    assert path and "focus-obscured" not in r
+async def test_focus_obscured_message_is_fixed_wording(http_server):
+    async with open_page(f"{http_server}/cookie-banner.html", allow_ips=LOCAL) as (page, _):
+        f, _, _ = await walk(page)
+    m = next(x.message for x in f if x.rule_id == "focus-obscured")
+    assert m == ("While it has keyboard focus, this element cannot be seen: it is entirely covered by other "
+                 "content or outside the visible page.")
