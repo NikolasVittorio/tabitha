@@ -15,10 +15,9 @@ def test_quota():
     assert isinstance(parse_chat("https://e.com", "s", q, D), Reply)
     assert isinstance(parse_chat("https://e.com", "other", q, D), Scan)
     assert isinstance(parse_chat("https://e.com", "s", q, date(2026, 11, 5)), Scan)  # new UTC day
-def test_fix_charges_quota():
-    from gate.chat import QUOTA_REPLY
+def test_fix_is_paid_not_quota():
     q = Quota(limit=5)
     for _ in range(5): assert isinstance(parse_chat("https://e.com", "s", q, D), Scan)
-    assert parse_chat("fix https://e.com", "s", q, D) == Reply(QUOTA_REPLY)
+    assert parse_chat("fix https://e.com", "s", q, D) == Fix("https://e.com")
 def test_first_url_only():
     assert parse_chat("check https://a.com then http://b.com", "s", Quota(), D) == Scan("https://a.com")

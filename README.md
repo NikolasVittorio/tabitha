@@ -27,6 +27,10 @@ Send a chat message to the lead (for example from ASI:One):
 - `check <url>`: free automated scan plus keyboard walk. 5 per sender per UTC day.
 - `fix <url>`: verified patch plus signed scan log, 0.5 TEST FET on Dorado testnet. Live charging is off.
 
+`fix` uses the Payment Protocol (seller role). The lead sends a `RequestPayment` for 0.5 TEST FET (`fet_direct`) to its own wallet address, with the job id as `reference` and a 300 s deadline. The buyer pays on Dorado and sends `CommitPayment` with the tx hash and that reference. The lead checks the tx on chain (successful, a bank send of at least 0.5 TEST FET to its address, hash never used before). Only then does it reply `CompletePayment` and run the fix; otherwise it sends `CancelPayment`. A reference works once, only for the sender who asked. Callers that never pay get "payment window expired" after 300 s.
+
+Set `PAYMENT_ENABLED=0` to switch payment off for the event: `fix` then runs free, counts against the 5 free scans per day, and its reply is labelled "payment disabled for the event". The default is `1`.
+
 Input is a single public http(s) URL. No crawling, no pasted HTML. Each page gets 30 s and 2 MB at most.
 
 ## Limits
