@@ -40,9 +40,9 @@ Reproduce a blocked URL: send `check http://169.254.169.254/`. The metadata addr
 Send a chat message to the lead (for example from ASI:One):
 
 - `check <url>`: free automated scan plus keyboard walk. 5 per sender per UTC day.
-- `fix <url>`: verified patch plus signed scan log, 0.5 TEST FET on Dorado testnet. Live charging is off.
+- `fix <url>`: patch rechecked on the page source with scripts off (page scripts are not re-run) plus signed scan log, 0.5 TEST FET on Dorado testnet. Live charging is off.
 
-`fix` uses the Payment Protocol (seller role). The lead sends a `RequestPayment` for 0.5 TEST FET (`fet_direct`) to its own wallet address, with the job id as `reference` and a 300 s deadline. The buyer pays on Dorado **with the tx memo set to the reference** and sends `CommitPayment` with the tx hash and that reference. The lead checks the tx on chain (successful, memo equals the reference, a bank send of at least 0.5 TEST FET to its address, hash never used before). Only then does it reply `CompletePayment` and run the fix. A tx that is not indexed yet gets "transaction not found yet - resend CommitPayment". Any other mismatch gets a "Payment not accepted: <reason>" chat line. In both cases the reference stays open until its deadline, so fix it and resend `CommitPayment`. A reference is consumed once, by a verified payment, and only the sender who asked can use it. `CancelPayment` is sent only when a reference closes unpaid: at the deadline ("payment window expired", which also reaches chat-only callers) or after `RejectPayment`.
+`fix` uses the Payment Protocol (seller role). The lead sends a `RequestPayment` for 0.5 TEST FET (`fet_direct`) to its own wallet address, with the job id as `reference` and a 300 s deadline. The buyer pays on Dorado **with the tx memo set to the reference** and sends `CommitPayment` with the tx hash and that reference. The lead checks the tx on chain (successful, memo equals the reference, a bank send of at least 0.5 TEST FET to its address, hash never used before). Only then does it run the fix, and it replies `CompletePayment` after the report is delivered. A tx that is not indexed yet gets "transaction not found yet - resend CommitPayment". Any other mismatch gets a "Payment not accepted: <reason>" chat line. In both cases the reference stays open until its deadline, so fix it and resend `CommitPayment`. In-memory; a restart mid-job loses the paid job (testnet). A reference is consumed once, by a verified payment, and only the sender who asked can use it. `CancelPayment` is sent only when a reference closes unpaid: at the deadline ("payment window expired", which also reaches chat-only callers) or after `RejectPayment`.
 
 Set `PAYMENT_ENABLED=0` to switch payment off for the event: `fix` then runs free, counts against the 5 free scans per day, and its reply is labelled "payment disabled for the event". The default is `1`.
 
@@ -50,11 +50,11 @@ Input is a single public http(s) URL. No crawling, no pasted HTML. Each page get
 
 ## Limits
 
-Every report ends with this disclaimer, with the numbers filled in:
+Every scan report ends with this disclaimer, with the numbers filled in:
 
 > "Automated scan result: X violations found across Y tested WCAG 2.2 AA success criteria. Z criteria require manual/human testing and were NOT evaluated. This is not a WCAG conformance determination or legal compliance certification. Suggested code changes are unreviewed and must be checked by a developer before use."
 
-Automated tools find less than half of accessibility problems. In the GOV.UK GDS accessibility audit, the best automated tool found roughly 40% of the known issues; the rest needs a human. Logical focus order and obscured focus are reported as needing review, never as failures. Nothing is stored; logs hold only rule ids, hashes and job ids.
+Automated tools find less than half of accessibility problems. In the GOV.UK GDS accessibility audit, the best automated tool found roughly 40% of the known issues; the rest needs a human. Logical focus order and obscured focus are reported as needing review, never as failures. Nothing is stored; logs hold only rule ids, hashes and job ids. Pages that redirect are scanned at the original URL; relative assets may not load, so results for them can be incomplete.
 
 ## Verify a scan log
 
@@ -85,8 +85,8 @@ The deployed container needs the first five. `PAYMENT_ENABLED` is optional (defa
 Page: `demo/broken.html` (served from GitHub Pages). Buyer: `python -m agents.demo_buyer <url>` pays 0.5 TEST FET on Dorado with the tx memo set to the payment reference, then prints each reply. Scripts: `docs/demo-script.md`.
 
 1. Broken theme page, with pre-recorded screen-reader audio.
-2. Focus-path overlay showing focus trapped in a modal.
-3. Patch, then the counter "Automated issues N → M (image alt text needs the author)" and "N criteria need human review".
+2. Keyboard walk result: N focus stops, keyboard trap found.
+3. Patch with per-element fix outcomes, and "N criteria need human review".
 4. Audio after the fix.
 5. Receipt and the TEST FET payment reference.
 
@@ -109,10 +109,8 @@ The container renders attacker-supplied URLs, so `deploy/entrypoint.sh` starts a
 3. Edit `fly.toml` and replace `a11y-gate-<CHANGE_ME>` with your app name, then `fly launch --no-deploy --copy-config`
 4. `fly secrets set LEAD_SEED=... SCANNER_SEED=... WALKER_SEED=... FIXER_SEED=... RECEIPT_KEY_HEX=...`
 5. `fly deploy`
-6. `fly logs` shows the four agent addresses and an Inspector link. Copy them into the table above.
-7. Connect the mailbox via the Inspector. The agent server listens on IPv4 only, so bridge it for the session:
-   - terminal A: `fly ssh console -C "socat TCP6-LISTEN:8001,bind=[::],fork,reuseaddr TCP4:127.0.0.1:8000"`
-   - terminal B: `fly proxy 8000:8001`
-   - open the Inspector link from the logs, click **Connect**, choose **Mailbox**. Then close both terminals.
+6. `fly logs` shows the four agent addresses. Copy them into the table above.
+7. Connect the mailbox once, before or after deploying: run the lead locally with the production `LEAD_SEED` (`python -m agents.lead`), open its Inspector link, click **Connect**, choose **Mailbox**, stop it, then `fly deploy`. The mailbox belongs to the agent address, so the deployed lead picks it up. The Inspector is lead-only; the three subagents run with it off.
+   - Fallback, if the local connect is not possible: the agent server listens on IPv4 only, so bridge it for the session. Terminal A: `fly ssh console -C "socat TCP6-LISTEN:8001,bind=[::],fork,reuseaddr TCP4:127.0.0.1:8000"`. Terminal B: `fly proxy 8000:8001`. Open the Inspector link from the logs, click **Connect**, choose **Mailbox**, then close both terminals.
 8. Check the firewall: `fly ssh console -C /app/deploy/egress-check.sh` (exits non-zero on any unexpected result).
 9. In ASI:One, send `check https://example.com` to the lead. Expect a reply within 60 s and the Agentverse profile showing Active.
