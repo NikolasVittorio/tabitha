@@ -1,0 +1,9 @@
+.venv/
+.env
+__pycache__/
+.pytest_cache/
+.superpowers/
+# local research notes, not part of the public repo
+quiet-quack.md
+quiet-quack-claude-code-pressure-test.md
+stranger-builds-fetch-challenge.md
