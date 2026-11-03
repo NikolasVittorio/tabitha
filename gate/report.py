@@ -9,7 +9,7 @@ DISCLAIMER = (
     "This is not a WCAG conformance determination or legal compliance certification. "
     "Suggested code changes are unreviewed and must be checked by a developer before use."
 )
-USAGE = "Usage: send a single http(s) URL, e.g. https://example.com"
+from gate.chat import USAGE  # noqa: E402
 
 
 def _ticks(v: str, n: int = 1) -> str:
