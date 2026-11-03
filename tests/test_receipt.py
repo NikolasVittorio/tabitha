@@ -48,3 +48,13 @@ def test_unbound_receipt_refused():
     r = build_report("j", "https://e.com", [], ["1.4.3"])
     with pytest.raises(ValueError):
         sign_receipt(r, KEY, NOW)
+
+
+def test_receipt_keeps_per_selector_outcomes():
+    from gate.models import Fix
+    a = Fix(rule_id="button-name", selector="#a", outcome="fixed", note="")
+    b = Fix(rule_id="button-name", selector="#b", outcome="needs_author", note="")
+    p1, p2 = (sign_receipt(_report().copy(update={"fixes": fx}), KEY, NOW).payload_json for fx in ([a, b], [b, a]))
+    assert p1 == p2
+    assert json.loads(p1)["fixes"] == [{"rule_id": "button-name", "selector": "#a", "outcome": "fixed"},
+                                       {"rule_id": "button-name", "selector": "#b", "outcome": "needs_author"}]

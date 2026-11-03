@@ -8,17 +8,34 @@ from uagents import Agent, Bureau, Context, Protocol
 from uagents_core.contrib.protocols.chat import (
     ChatAcknowledgement, ChatMessage, EndSessionContent, TextContent, chat_protocol_spec,
 )
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from uagents_core.identity import Identity
 
 from agents.rpc import Pending
 from agents.subagents import make_fixer, make_scanner, make_walker
-from gate.chat import Reply, parse_chat
+from gate.chat import Fix, Reply, parse_chat
 from gate.models import FixResult, ScanResult, WalkResult
 from gate.pipeline import run_gate
 from gate.quota import Quota
+from gate.receipt import sign_receipt
 from gate.report import render_chat
 
 BUSY = "Busy — try again in a minute."
+NO_RECEIPT = "signed scan log unavailable (no signing key configured)"
+
+
+def receipt_key() -> str | None:
+    """RECEIPT_KEY_HEX if it is a valid Ed25519 private key; logs only the public key."""
+    key = os.environ.get("RECEIPT_KEY_HEX")
+    try:
+        pub = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(key or "")).public_key().public_bytes(
+            serialization.Encoding.Raw, serialization.PublicFormat.Raw).hex()
+    except ValueError:
+        print("RECEIPT_KEY_HEX missing or invalid: fix reports go out unsigned", flush=True)
+        return None
+    print(f"TRUSTED_PUBKEY_HEX={pub}", flush=True)
+    return key
 
 
 def make_lead(seed: str, sub_addrs: dict[str, str]) -> Agent:
@@ -26,6 +43,7 @@ def make_lead(seed: str, sub_addrs: dict[str, str]) -> Agent:
     # concurrent: the chat handler awaits subagent replies that arrive on this same agent
     agent = Agent(name="a11y_gate", seed=seed, mailbox=True, handle_messages_concurrently=True)
     pending, quota = Pending(), Quota()
+    receipt_sk = receipt_key()
     sem = asyncio.Semaphore(2)  # at most 2 jobs in flight; the rest get BUSY, not a queue
     chat = Protocol(spec=chat_protocol_spec)
 
@@ -37,7 +55,7 @@ def make_lead(seed: str, sub_addrs: dict[str, str]) -> Agent:
             return await pending.wait(key)
         return call
 
-    scan_rpc, walk_rpc = rpc("scan"), rpc("walk")
+    scan_rpc, walk_rpc, fix_rpc = rpc("scan"), rpc("walk"), rpc("fix")
 
     @chat.on_message(ChatMessage)
     async def on_chat(ctx: Context, sender: str, msg: ChatMessage):
@@ -49,11 +67,18 @@ def make_lead(seed: str, sub_addrs: dict[str, str]) -> Agent:
         elif sem.locked():  # no await between this check and `async with`, so no race
             quota.refund(sender, today)  # rejected work is not charged
             text = BUSY
-        else:  # ponytail: Fix(url) runs the scan+walk path until Task 9 adds payment and patching
+        else:  # ponytail: Fix(url) is unpaid until Task 11 adds payment
             async with sem:
                 job_id = str(uuid4())
                 ctx.logger.info(f"job {job_id} url_sha256={hashlib.sha256(action.url.encode()).hexdigest()}")
-                r = await run_gate(job_id, action.url, lambda q: scan_rpc(ctx, q), lambda q: walk_rpc(ctx, q), None)
+                is_fix = isinstance(action, Fix)
+                r = await run_gate(job_id, action.url, lambda q: scan_rpc(ctx, q), lambda q: walk_rpc(ctx, q),
+                                   (lambda q: fix_rpc(ctx, q)) if is_fix else None)
+                if is_fix and not r.error:
+                    try:
+                        r = r.copy(update={"receipt": sign_receipt(r, receipt_sk, datetime.now(timezone.utc))})
+                    except Exception:  # no key, or nothing to bind to: reply unsigned, never crash
+                        r = r.copy(update={"note": "; ".join(x for x in (r.note, NO_RECEIPT) if x)})
                 ctx.logger.info(f"job {job_id} error={r.error} rules={sorted({f.rule_id for f in r.findings})}")
             text = render_chat(r)
         await ctx.send(sender, ChatMessage(content=[TextContent(text=text), EndSessionContent()]))

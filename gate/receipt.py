@@ -21,7 +21,8 @@ def sign_receipt(r: Report, key_hex: str, now: datetime) -> Receipt:
         "engine": "axe-core 4.14.0 + a11y-gate walker v1",
         "automated_status": r.automated_status,
         "violation_count": r.violation_count,
-        "fixes": {f.rule_id: f.outcome for f in r.fixes},
+        "fixes": sorted(({"rule_id": f.rule_id, "selector": f.selector, "outcome": f.outcome} for f in r.fixes),
+                        key=lambda d: (d["rule_id"], d["selector"])),
         "untested": r.untested,
         "disclaimer": r.disclaimer,
     }, sort_keys=True, separators=(",", ":"))

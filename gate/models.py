@@ -82,3 +82,4 @@ class Report(Model):
     error: str | None
     focus_count: int = 0
     input_sha256: str = ""
+    note: str = ""
