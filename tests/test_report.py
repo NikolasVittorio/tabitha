@@ -25,21 +25,40 @@ def test_sections():
     fs = [F(f"r{i}") for i in range(7)] + [F("kb", "fail", "walker"), F("rv", "needs_review")]
     r = build_report("j", "u", fs, ["1.4.3"], fixes=[Fix(rule_id="r0", selector="#x", outcome="fixed", note="n")], diff="D", focus_count=12)
     t = render_chat(r)
-    assert "r0 — `#x` — WCAG 1.4.3" in t and "r4 — `#x`" in t and "r5 — `#x`" not in t
+    assert "r0 — ` #x ` — WCAG 1.4.3" in t and "r4 — ` #x `" in t and "r5 — ` #x `" not in t
     assert "Keyboard: 12 focus stops walked, 1 keyboard issues" in t
     assert "r0" in t.split("Fixes")[1] and "fixed" in t
 def test_error_only():
     t = render_chat(build_report("j", "u", [], [], error="timeout"))
     assert "timeout" in t and "NOT evaluated" not in t
+BANNED = r"\b(pass|passed|compliant|certified|agent-ready)\b"
+def strip_code(t):
+    # Markdown-aware: remove fences, then inline spans, by their actual delimiter length
+    t = re.sub(r"(?m)^(`{3,})\n.*?\n\1$", "", t, flags=re.S)
+    return re.sub(r"(?<!`)(`+)(?!`) .*? \1(?!`)", "", t).replace("legal compliance certification", "")
+def rep(sel="#x", diff="", error=None):
+    f = Finding(rule_id="x", source="axe", status="fail", impact=None, selector=sel, wcag=["1.4.3"], message="m")
+    return render_chat(build_report("j", "u", [] if error else [f], [], diff=diff, error=error))
 def test_page_text_quoted():
     d = "<a class='agent-ready'>certified</a>"
-    f = Finding(rule_id="x", source="axe", status="fail", impact=None, selector="#certified", wcag=["1.4.3"], message="m")
-    t = render_chat(build_report("j", "u", [f], [], diff=d))
-    assert "```\n" + d + "\n```" in t and "`#certified`" in t
-    bare = re.sub(r"`[^`\n]*`", "", re.sub(r"```.*?```", "", t, flags=re.S)).replace("legal compliance certification", "")
-    assert not re.search(r"\b(pass|passed|compliant|certified|agent-ready)\b", bare, re.I)
-    e = render_chat(build_report("j", "u", [], [], error="did not pass"))
-    assert "`did not pass`" in e and not re.search(r"\bpass\b", re.sub(r"`[^`]*`", "", e), re.I)
+    t = rep("#certified", d)
+    assert "```\n" + d + "\n```" in t and "` #certified `" in t
+    assert not re.search(BANNED, strip_code(t), re.I)
+    e = rep(error="did not pass")
+    assert "` did not pass `" in e and not re.search(BANNED, strip_code(e), re.I)
+def test_embedded_backticks_in_error():
+    e = rep(error="request ` certified ` failed")
+    assert "certified" in e and not re.search(BANNED, strip_code(e), re.I)
+def test_selector_with_double_backticks():
+    t = rep("a``b certified ``c")
+    assert "certified" in t and not re.search(BANNED, strip_code(t), re.I)
+def test_diff_with_fence_line():
+    d = "x\n```\n agent-ready \n```\ny"
+    t = rep(diff=d)
+    assert "````\n" + d + "\n````" in t
+    assert not re.search(BANNED, strip_code(t), re.I)
+def test_newline_in_inline_value():
+    assert "a b" in rep("a\nb")
 def test_needs_author_listed():
     t = render_chat(build_report("j", "u", [F("image-alt", "needs_author")], []))
-    assert "image-alt" in t and "`#x`" in t
+    assert "image-alt" in t and "` #x `" in t
