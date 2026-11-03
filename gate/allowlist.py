@@ -16,14 +16,16 @@ def parse(html: str) -> BeautifulSoup:
     return BeautifulSoup(html, "html.parser", on_duplicate_attribute=_dup)
 
 
-DECL = re.compile(r"\s*[a-zA-Z-]+\s*:\s*[A-Za-z0-9#%.,()\s+-]*")
+# A "simple" declaration: value is plain tokens, hex colours, and complete rgb()/rgba() only.
+# A parenthesis can appear only inside a complete rgb()/rgba(), so an unclosed function
+# (which in real CSS swallows the following ";") can never pass, and a ";" split agrees with CSS.
+_FN = r"rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(?:,\s*[0-9.]+\s*)?\)"
+DECL = re.compile(r"\s*[a-zA-Z-]+\s*:(?:" + _FN + r"|[A-Za-z0-9#%.\s+-])*")
 
 
 def unparseable_style(v) -> bool:
-    # Strict grammar: no quotes, comments, escapes, braces, "!", "&", "@", "/" or url(),
-    # so a naive ";" split can never disagree with a real CSS parser.
-    v = str(v or "")
-    return "url(" in v.lower() or any(p.strip() and not DECL.fullmatch(p) for p in v.split(";"))
+    # Strict allowlist grammar, not a blacklist: anything outside DECL is never mutated or compared.
+    return any(p.strip() and not DECL.fullmatch(p) for p in str(v or "").split(";"))
 
 
 def _decls(v: str) -> list[tuple[str, str]]:

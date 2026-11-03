@@ -24,3 +24,19 @@ def test_allowlist_flags_unparseable_before_or_after():
 def test_plain_styles_parse():
     for ok in ("", "margin:0", "color:#fff;", "color: rgb(1, 2, 3); margin: 0 auto"):
         assert not unparseable_style(ok), ok
+
+
+def test_unclosed_function_swallows_semicolon():
+    # CSS keeps ";display:none" inside an unclosed function; a ";" split would activate it.
+    for st in ("color:rgb(;display:none", "color:calc(1px;display:none", "color:var(--x;display:none"):
+        html = f'<html><body><p style="{st}">Payment</p></body></html>'
+        fnd = Finding(rule_id="color-contrast", source="axe", status="fail", impact=None, selector="p", wcag=[], message="", data=D)
+        out, fixes = fix(html, [fnd])
+        assert out == html and fixes[0].outcome == "not_fixed" and "unparseable" in fixes[0].note, st
+        assert unparseable_style(st), st
+        assert patch_violations(f'<p style="{st}">x</p>', '<p style="display:none;color:#757575">x</p>'), st
+
+
+def test_plain_styles_still_simple():
+    for ok in ("margin:0", "color:#999", "color: rgb(1, 2, 3)", "color:rgba(1,2,3,0.5)", "margin:0 auto;color:#999999"):
+        assert not unparseable_style(ok), ok
