@@ -24,7 +24,7 @@ DUPES_JS = r"""(() => {
   try {
     const g = new Map();
     for (const e of document.querySelectorAll('a[href],button,[role=button],input[type=submit],input[type=button]')) {
-      if (!e.checkVisibility() || !e.getClientRects().length) continue;
+      if (!e.checkVisibility({visibilityProperty: true}) || !e.getClientRects().length) continue;
       const n = axe.commons.text.accessibleText(e).replace(/\s+/g, ' ').trim().toLowerCase();
       if (!n) continue;
       const link = e.tagName === 'A' && e.getAttribute('role') !== 'button', k = (link ? 'l' : 'b') + n;
@@ -42,7 +42,8 @@ async def _dupes(cdp, ctx_id) -> list[Finding]:
     # ponytail: light DOM only, and "different purpose" means a different href once the #fragment is dropped.
     # Upgrade: pierce shadow roots; compare accessible descriptions or surrounding headings too.
     try:
-        out = await cdp.send("Runtime.evaluate", {"expression": DUPES_JS, "contextId": ctx_id, "returnByValue": True})
+        out = await cdp.send("Runtime.evaluate", {
+            "expression": DUPES_JS, "contextId": ctx_id, "returnByValue": True, "timeout": 5000})  # CDP stops a stalled script
         groups = json.loads(out["result"]["value"])
     except Exception:  # ponytail: this check is extra, never let it fail the scan
         return []

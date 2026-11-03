@@ -2,7 +2,7 @@ from pathlib import Path
 
 from gate.browser import open_html, open_page
 from gate.fixer import fix
-from gate.scanner import aria_tree, scan
+from gate.scanner import _dupes, aria_tree, scan
 
 LOCAL = frozenset({"127.0.0.1"})
 
@@ -132,3 +132,14 @@ async def test_clean_page_has_no_duplicate_names(http_server):
     async with open_page(f"{http_server}/clean.html", allow_ips=LOCAL) as (page, _):
         f, _ = await scan(page)
     assert not any(x.source == "gate" for x in f)
+
+
+async def test_dupes_evaluate_is_time_bounded():
+    seen = {}
+
+    class Cdp:
+        async def send(self, method, params):
+            seen.update(params)
+            return {"result": {"type": "object"}, "exceptionDetails": {"text": "Script execution timed out."}}
+
+    assert await _dupes(Cdp(), 1) == [] and seen["timeout"] == 5000  # CDP's own cap; the page cannot stall the scan
