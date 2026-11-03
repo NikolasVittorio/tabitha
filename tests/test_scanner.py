@@ -115,3 +115,20 @@ async def test_aria_tree_timeout_returns_empty():
         def locator(self, _): return Loc()
 
     assert await aria_tree(Page()) == "" and seen["timeout"] == 5000
+
+
+async def test_same_name_different_purpose(http_server):
+    async with open_page(f"{http_server}/dupes.html", allow_ips=LOCAL) as (page, _):
+        f, tested = await scan(page)
+    d = {x.rule_id: x for x in f if x.source == "gate"}
+    assert d["duplicate-link-name"].data["count"] == 3 and d["duplicate-link-name"].status == "needs_review"
+    assert d["duplicate-link-name"].wcag == ["2.4.4"] and d["duplicate-button-name"].wcag == ["2.4.6"]
+    assert d["duplicate-button-name"].data["count"] == 4
+    assert sum(x.source == "gate" for x in f) == 2  # Home (same page) and Contact (unique) are not findings
+    assert "Learn more" not in d["duplicate-link-name"].message  # no page text in messages
+
+
+async def test_clean_page_has_no_duplicate_names(http_server):
+    async with open_page(f"{http_server}/clean.html", allow_ips=LOCAL) as (page, _):
+        f, _ = await scan(page)
+    assert not any(x.source == "gate" for x in f)

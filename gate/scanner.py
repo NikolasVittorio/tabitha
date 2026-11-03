@@ -18,6 +18,48 @@ async def aria_tree(page: Page) -> str:
         return ""
 
 
+# Elements grouped by (link|button, accessible name); only groups of 2+ leave the page, with the first element's selector.
+DUPES_JS = r"""(() => {
+  axe.setup(document);  // axe.run tore its tree down; accessibleText and getSelector need one
+  try {
+    const g = new Map();
+    for (const e of document.querySelectorAll('a[href],button,[role=button],input[type=submit],input[type=button]')) {
+      if (!e.checkVisibility() || !e.getClientRects().length) continue;
+      const n = axe.commons.text.accessibleText(e).replace(/\s+/g, ' ').trim().toLowerCase();
+      if (!n) continue;
+      const link = e.tagName === 'A' && e.getAttribute('role') !== 'button', k = (link ? 'l' : 'b') + n;
+      if (!g.has(k)) g.set(k, {link, e, hrefs: []});
+      g.get(k).hrefs.push(link ? String(e.href).split('#')[0] : '');
+    }
+    return JSON.stringify([...g.values()].filter(x => x.hrefs.length > 1)
+      .map(x => ({link: x.link, sel: axe.utils.getSelector(x.e), hrefs: x.hrefs})));
+  } finally { axe.teardown(); }
+})()"""
+DUPES = 10
+
+
+async def _dupes(cdp, ctx_id) -> list[Finding]:
+    # ponytail: light DOM only, and "different purpose" means a different href once the #fragment is dropped.
+    # Upgrade: pierce shadow roots; compare accessible descriptions or surrounding headings too.
+    try:
+        out = await cdp.send("Runtime.evaluate", {"expression": DUPES_JS, "contextId": ctx_id, "returnByValue": True})
+        groups = json.loads(out["result"]["value"])
+    except Exception:  # ponytail: this check is extra, never let it fail the scan
+        return []
+    found = []
+    for g in groups:
+        n, k = len(g["hrefs"]), len(set(g["hrefs"]))
+        if g["link"] and k > 1:
+            found.append(Finding(rule_id="duplicate-link-name", source="gate", status="needs_review", impact=None,
+                                 selector=g["sel"], wcag=["2.4.4"], data={"count": n},
+                                 message=f"{n} links share this name but go to {k} different pages."))
+        elif not g["link"]:
+            found.append(Finding(rule_id="duplicate-button-name", source="gate", status="needs_review", impact=None,
+                                 selector=g["sel"], wcag=["2.4.6"], data={"count": n},
+                                 message=f"{n} buttons share this name; check that each one says what it does."))
+    return found[:DUPES]
+
+
 async def scan(page: Page) -> tuple[list[Finding], list[str]]:
     # axe runs in a CDP isolated world: page scripts cannot see or reconfigure it, and CSP
     # does not apply to Runtime.evaluate. ponytail: child frames are not provisioned; axe's
@@ -32,10 +74,11 @@ async def scan(page: Page) -> tuple[list[Finding], list[str]]:
         out = await cdp.send("Runtime.evaluate", {
             "expression": AXE_SRC + f";axe.run(document,{opts}).then(r=>JSON.stringify(r))",
             "contextId": ctx_id, "awaitPromise": True, "returnByValue": True})
+        if "exceptionDetails" in out:
+            raise RuntimeError("axe_failed")
+        dupes = await _dupes(cdp, ctx_id)  # same world: axe is still loaded
     finally:
         await cdp.detach()
-    if "exceptionDetails" in out:
-        raise RuntimeError("axe_failed")
     res = json.loads(out["result"]["value"])
     if not (res["violations"] or res["passes"] or res["incomplete"]):
         raise ValueError("scan_tampered")  # a real page always yields some result
@@ -64,4 +107,4 @@ async def scan(page: Page) -> tuple[list[Finding], list[str]]:
                     impact=node.get("impact") or rule.get("impact"),
                     selector=sel, wcag=wcag, message=msg, data=data,
                 ))
-    return findings, sorted(tested)
+    return findings + dupes, sorted(tested)

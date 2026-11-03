@@ -5,7 +5,7 @@ from uagents import Model
 
 class Finding(Model):
     rule_id: str
-    source: Literal["axe", "walker"]
+    source: Literal["axe", "walker", "gate"]
     status: Literal["fail", "needs_review", "needs_author"]
     impact: str | None
     selector: str
