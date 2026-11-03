@@ -125,3 +125,12 @@ def test_new_since_last_scan_listed():
     i = lines.index("New since your last scan:")
     assert lines[i + 1] == "- r — ` b `" and "` a `" not in lines[i + 1] and not lines[i + 2].startswith("- ")
     assert not re.search(BANNED, strip_code(t), re.I)
+def test_partial_scan_caveat_follows_since_line():
+    from gate.models import Delta
+    cav = ("Focus visibility was only partly checked on one of these scans (time limit), so focus issues can "
+           "show as new or no longer detected for that reason alone.")
+    d = Delta(since="x", before=3, after=2, gone=2, new=1, partial=True)
+    t = render_chat(build_report("j", "u", [F("a")], ["1.4.3"]).copy(update={"delta": d}))
+    assert t.splitlines()[2] == cav and not re.search(BANNED, cav, re.I)
+    t = render_chat(build_report("j", "u", [F("a")], ["1.4.3"]).copy(update={"delta": d.copy(update={"partial": False})}))
+    assert "partly checked" not in t

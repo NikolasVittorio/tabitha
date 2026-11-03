@@ -63,6 +63,9 @@ def render_chat(r: Report, max_diff_chars: int = 8000) -> str:
     if d := r.delta:
         out.append(f"Since your last scan of this URL ({d.since}): automated issues {d.before} → {d.after} "
                    f"({d.gone} no longer detected, {d.new} new)")
+        if d.partial:
+            out.append("Focus visibility was only partly checked on one of these scans (time limit), so focus "
+                       "issues can show as new or no longer detected for that reason alone.")
         if new := [r.findings[i] for i in d.new_at if i < len(r.findings)][:5]:
             out += ["New since your last scan:"] + [f"- {f.rule_id} — {_code(f.selector)}" for f in new]
     out += [f"{f.rule_id} — {_code(f.selector)} — WCAG {', '.join(f.wcag)}" for f in fails[:5]]

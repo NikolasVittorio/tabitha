@@ -80,6 +80,7 @@ class Delta(Model):
     gone: int
     new: int
     new_at: list[int] = []  # indices into Report.findings of counted findings new since the last scan
+    partial: bool = False  # focus visibility was only partly checked on the previous or this scan
 
 
 class Report(Model):
