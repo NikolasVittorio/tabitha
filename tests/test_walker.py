@@ -34,6 +34,10 @@ async def test_offset_ring_is_not_a_fail(http_server):
 async def test_changing_pixels_need_review(http_server):
     r, _, _ = await ids(http_server, "animated.html")
     assert r.get("focus-visibility-unverified") == "needs_review" and "fail" not in r.values()
+@pytest.mark.parametrize("name", ["radios.html", "radios-link.html", "one-link.html", "skip-link.html"])
+async def test_no_false_trap_or_unreachable(http_server, name):
+    r, path, _ = await ids(http_server, name)
+    assert path and "kbd-trap" not in r and "kbd-unreachable" not in r
 async def test_selectors_resolve_in_page_html(http_server):
     # the fixer targets these selectors with soupsieve
     async with open_page(f"{http_server}/broken.html", allow_ips=LOCAL) as (page, html):

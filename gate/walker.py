@@ -21,9 +21,17 @@ _PATH = r"""const path = el => {
   return parts.join(' > ');
 };"""
 _SHOWN = "const shown = el => el.checkVisibility({visibilityProperty: true}) && el.getClientRects().length > 0;"
-_TARGETS = r"""const targets = root => [...root.querySelectorAll(
-    'a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])')]
-  .filter(el => el.tabIndex >= 0 && !el.disabled && !el.closest('[inert]') && shown(el));"""
+# Expected Tab stops. A named radio group (same name, same form) is ONE stop: the checked radio, else the first.
+_TARGETS = r"""const targets = root => {
+  const all = [...root.querySelectorAll('a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])')]
+    .filter(el => el.tabIndex >= 0 && !el.matches(':disabled') && !el.closest('[inert],[hidden]') && shown(el));
+  const radio = el => el.localName === 'input' && el.type === 'radio' && el.name;
+  return all.filter(el => {
+    if (!radio(el)) return true;
+    const g = all.filter(r => radio(r) && r.name === el.name && r.form === el.form);
+    return el === (g.find(r => r.checked) || g[0]);
+  });
+};"""
 _MODAL = """const modal = () => [...document.querySelectorAll('[aria-modal="true"],dialog[open]')].find(shown) || null;"""
 # outline:none leaves the UA focus-visible outline-offset/width in place; they draw nothing, so drop them
 _SIG = r"""const sig = e => { const s = getComputedStyle(e);
