@@ -18,6 +18,7 @@ from uagents_core.identity import Identity
 
 from agents.rpc import Pending
 from agents.subagents import make_fixer, make_scanner, make_walker
+from gate.history import History
 from gate.chat import QUOTA_REPLY, Fix, Reply, parse_chat
 from gate.models import A11yCheckRequest, FixResult, Report, ScanResult, WalkResult
 from gate.payment import PRICE_AFET, dorado_get_tx, verify_fet_payment
@@ -51,7 +52,7 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=dorado_get_tx) -> Age
     """sub_addrs: {"scan": addr, "walk": addr, "fix": addr}. get_tx: blocking tx lookup (tests inject a fake)."""
     # concurrent: the chat handler awaits subagent replies that arrive on this same agent
     agent = Agent(name="a11y_gate", seed=seed, mailbox=True, handle_messages_concurrently=True)
-    pending, quota = Pending(), Quota()
+    pending, quota, history = Pending(), Quota(), History()
     receipt_sk = receipt_key()
     sem = asyncio.Semaphore(2)  # at most 2 jobs in flight; the rest get BUSY, not a queue
     chat = Protocol(spec=chat_protocol_spec)
@@ -86,6 +87,10 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=dorado_get_tx) -> Age
         ctx.logger.info(f"job {job_id} error={r.error} rules={sorted({f.rule_id for f in r.findings})}")
         return r
 
+    def with_delta(sender: str, r: Report) -> Report:
+        d = history.compare(sender, r.url, r, datetime.now(timezone.utc))
+        return r.copy(update={"delta": d}) if d else r
+
     async def admit(ctx: Context, sender: str, today, url: str, is_fix: bool, charge: bool) -> Report | str:
         """Admission shared by chat and typed callers: a Report, or "quota_exceeded" / "busy".
         charge=False when the quota was already taken (parse_chat charges chat scans)."""
@@ -95,7 +100,7 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=dorado_get_tx) -> Age
             quota.refund(sender, today)  # rejected work is not charged
             return "busy"
         async with sem:
-            return await run_job(ctx, str(uuid4()), url, is_fix)
+            return with_delta(sender, await run_job(ctx, str(uuid4()), url, is_fix))
 
     async def say(ctx: Context, to: str, text: str, end: bool = True):
         await ctx.send(to, ChatMessage(content=[TextContent(text=text)] + ([EndSessionContent()] if end else [])))
@@ -199,7 +204,7 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=dorado_get_tx) -> Age
         p["timer"].cancel()
         # ponytail: in-memory, testnet only; a restart mid-job loses the paid job. Persist before real money.
         async with sem:  # paid jobs wait for a slot instead of getting BUSY
-            r = await run_job(ctx, job_id, p["url"], True)
+            r = with_delta(sender, await run_job(ctx, job_id, p["url"], True))
         await say(ctx, sender, render_chat(r))
         await ctx.send(sender, CompletePayment(transaction_id=tx_hash))  # only after the report is delivered
 

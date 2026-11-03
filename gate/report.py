@@ -53,6 +53,9 @@ def render_chat(r: Report, max_diff_chars: int = 8000) -> str:
         return f"Error: {_code(r.error)}\n{USAGE}"
     fails = [f for f in r.findings if f.status in ("fail", "needs_author")]
     out = [f"Status: {r.automated_status} ({r.violation_count} violations)"]
+    if d := r.delta:
+        out.append(f"Since your last scan of this URL ({d.since}): automated issues {d.before} → {d.after} "
+                   f"({d.gone} no longer detected, {d.new} new)")
     out += [f"{f.rule_id} — {_code(f.selector)} — WCAG {', '.join(f.wcag)}" for f in fails[:5]]
     out.append(f"Needs review: {sum(f.status == 'needs_review' for f in r.findings)}")
     k = sum(f.source == "walker" and f.status == "fail" for f in r.findings)

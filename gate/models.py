@@ -73,6 +73,14 @@ class A11yCheckRequest(Model):
     mode: Literal["check", "fix"] = "check"
 
 
+class Delta(Model):
+    since: str
+    before: int
+    after: int
+    gone: int
+    new: int
+
+
 class Report(Model):
     job_id: str
     url: str
@@ -91,3 +99,4 @@ class Report(Model):
     note: str = ""
     tree_before: str = ""
     tree_after: str = ""
+    delta: Delta | None = None

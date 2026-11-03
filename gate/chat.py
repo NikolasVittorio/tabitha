@@ -6,7 +6,8 @@ from gate.quota import Quota
 
 USAGE = ("Send `check <url>` for a free automated scan, or `fix <url>` for a patch "
          "rechecked on the page source with scripts off (page scripts are not re-run) "
-         "+ signed scan log (0.5 TEST FET).")
+         "+ signed scan log (0.5 TEST FET). "
+         "Send `recheck <url>` after a fix to see what changed.")
 QUOTA_REPLY = "Free scan limit reached for today (5 per UTC day). " + USAGE
 
 

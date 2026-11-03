@@ -87,3 +87,8 @@ def test_tree_truncated_in_chat():
     assert "(tree truncated at 1500 characters)" in t and "x" * 1501 not in t
 def test_no_tree_no_section():
     assert "accessibility tree" not in _tr()
+def test_delta_line_wording():
+    from gate.models import Delta
+    r = build_report("j", "u", [F("a")], ["1.4.3"]).copy(update={"delta": Delta(since="09:05 UTC 04 Nov", before=3, after=2, gone=2, new=1)})
+    line = "Since your last scan of this URL (09:05 UTC 04 Nov): automated issues 3 → 2 (2 no longer detected, 1 new)"
+    assert render_chat(r).splitlines()[1] == line and not re.search(BANNED, line, re.I)

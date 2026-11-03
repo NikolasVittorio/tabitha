@@ -25,3 +25,6 @@ def test_url_trailing_punctuation_and_markdown():
     assert parse_chat("check [site](https://e.com/a)", "s", Quota(), D) == Scan("https://e.com/a")
 def test_first_url_only():
     assert parse_chat("check https://a.com then http://b.com", "s", Quota(), D) == Scan("https://a.com")
+def test_recheck_is_scan():
+    assert parse_chat("recheck https://e.com", "s", Quota(), D) == Scan("https://e.com")
+    assert "recheck <url>" in USAGE
