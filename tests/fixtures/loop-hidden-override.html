@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Loop before overridden hidden</title></head>
+<body>
+  <a id="a" href="#a">One</a>
+  <a id="b" href="#b">Two</a>
+  <div hidden style="display:block"><a href="#c">Three, rendered despite hidden</a></div>
+  <script>
+    const a = document.getElementById("a"), b = document.getElementById("b");
+    b.addEventListener("keydown", e => { if (e.key === "Tab") { e.preventDefault(); a.focus(); } });
+  </script>
+</body>
+</html>
