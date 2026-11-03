@@ -2,7 +2,7 @@ import asyncio
 import logging
 
 from uagents import Model
-from uagents_core.contrib.protocols.chat import ChatMessage, TextContent
+from uagents_core.contrib.protocols.chat import ChatMessage, EndSessionContent, TextContent
 from uagents_core.contrib.protocols.payment import CancelPayment, CommitPayment, CompletePayment, Funds, RequestPayment
 
 import agents.lead as lead_mod
@@ -43,9 +43,15 @@ class Ctx:
         self.sent.append((to, msg))
 
 
-def setup():
-    chain = {}  # tx hash -> tx dict; tests "confirm" txs by adding them
-    agent = lead_mod.make_lead("seed", SUBS, get_tx=chain.get)
+def setup(boom=()):
+    chain, boom = {}, set(boom)  # tx hash -> tx dict; tests "confirm" txs by adding them
+
+    def get_tx(h):
+        if h in boom:  # a one-off lookup error (not grpc) for this hash
+            boom.discard(h)
+            raise ConnectionError("rpc down")
+        return chain.get(h)
+    agent = lead_mod.make_lead("seed", SUBS, get_tx=get_tx)
     h = lambda m: agent._signed_message_handlers[Model.build_schema_digest(m)]
     pay = lambda h_, req: chain.__setitem__(h_, tx(to=str(agent.wallet.address()), memo=req.reference))
     return pay, h(ChatMessage), h(CommitPayment), Ctx()
@@ -67,6 +73,17 @@ def dispatched(ctx):
 
 def completed(ctx, who):
     return any(to == who and isinstance(m, CompletePayment) for to, m in ctx.sent)
+
+
+def nothing_terminal_before_complete(ctx, who):
+    msgs = [m for to, m in ctx.sent if to == who]
+    before = msgs[:[isinstance(m, CompletePayment) for m in msgs].index(True)]
+    return not any(isinstance(m, CancelPayment) or (isinstance(m, ChatMessage) and
+                   any(isinstance(c, EndSessionContent) for c in m.content)) for m in before)
+
+
+def cancels(ctx, who):
+    return sum(1 for to, m in ctx.sent if to == who and isinstance(m, CancelPayment))
 
 
 async def settle():  # let handlers run, including the to_thread tx lookup
@@ -94,16 +111,29 @@ async def test_two_senders_race_for_one_tx_memo_decides():
     ra, rb = await request(on_chat, ctx, "alice"), await request(on_chat, ctx, "bob")
     pay("h1", ra)  # alice's tx, memo = alice's job id, publicly visible on chain
     await on_commit(ctx, "bob", commit(rb, "h1"))  # bob claims it for his own job
-    assert isinstance(ctx.sent[-2][1], CancelPayment) and "memo" in ctx.sent[-1][1].text()
+    last = ctx.sent[-1][1].text()
+    assert last.startswith("Payment not accepted: memo") and "resend CommitPayment before" in last
     assert not completed(ctx, "bob") and dispatched(ctx) == []
     job_a = asyncio.create_task(on_commit(ctx, "alice", commit(ra, "h1")))
     await settle()
     assert completed(ctx, "alice")
-    pay("h2", rb)  # bob's job stayed pending after the definitive rejection; he can still pay
+    pay("h2", rb)  # bob's job stayed open after the rejection; he can still pay
     job_b = asyncio.create_task(on_commit(ctx, "bob", commit(rb, "h2")))
     await settle()
-    assert completed(ctx, "bob")
+    assert completed(ctx, "bob") and nothing_terminal_before_complete(ctx, "bob")
     job_a.cancel(), job_b.cancel()
+
+
+async def test_lookup_error_then_same_hash_succeeds():
+    pay, on_chat, on_commit, ctx = setup(boom={"h1"})
+    req = await request(on_chat, ctx, "alice")
+    pay("h1", req)
+    await on_commit(ctx, "alice", commit(req, "h1"))  # lookup raises
+    assert "Payment not accepted: transaction lookup failed" in ctx.sent[-1][1].text()
+    job = asyncio.create_task(on_commit(ctx, "alice", commit(req, "h1")))
+    await settle()
+    assert completed(ctx, "alice") and nothing_terminal_before_complete(ctx, "alice")
+    job.cancel()
 
 
 async def test_lookup_miss_is_retryable():
@@ -129,6 +159,7 @@ async def test_expired_reference_rejected(monkeypatch):
     req2 = await request(on_chat, ctx, "bob")
     await settle()  # timer fires: chat-only caller hears back
     assert ctx.sent[-1][0] == "bob" and "payment window expired" in ctx.sent[-1][1].text()
+    assert cancels(ctx, "bob") == 1 and cancels(ctx, "alice") == 1  # once each: commit-time and timer expiry
     pay("h2", req2)
     await on_commit(ctx, "bob", commit(req2, "h2"))
     assert isinstance(ctx.sent[-2][1], CancelPayment) and dispatched(ctx) == []
@@ -142,7 +173,7 @@ async def test_replayed_hash_rejected_across_jobs():
     await settle()
     n = len(dispatched(ctx))
     await on_commit(ctx, "alice", commit(req2, "h1"))
-    assert isinstance(ctx.sent[-2][1], CancelPayment) and "not verified" in ctx.sent[-1][1].text()
+    assert ctx.sent[-1][1].text().startswith("Payment not accepted") and cancels(ctx, "alice") == 0
     assert len(dispatched(ctx)) == n
     pay("h9", req1)
     await on_commit(ctx, "alice", commit(req1, "h9"))  # a reference is consumed once

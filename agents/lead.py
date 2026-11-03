@@ -2,7 +2,7 @@ import asyncio
 import hashlib
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from uagents import Agent, Bureau, Context, Protocol
@@ -86,11 +86,19 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=dorado_get_tx) -> Age
     async def say(ctx: Context, to: str, text: str, end: bool = True):
         await ctx.send(to, ChatMessage(content=[TextContent(text=text)] + ([EndSessionContent()] if end else [])))
 
+    async def close(ctx: Context, job_id: str, why: str):
+        """The only place a reference closes unpaid: CancelPayment + end of chat session, once."""
+        p = pending_payments.pop(job_id, None)
+        if not p:
+            return
+        if p["timer"] is not asyncio.current_task():
+            p["timer"].cancel()
+        await ctx.send(p["sender"], CancelPayment(reason=why))
+        await say(ctx, p["sender"], f"{why} (job {job_id}); no fix was run.")
+
     async def expire(ctx: Context, job_id: str):
         await asyncio.sleep(WINDOW)
-        p = pending_payments.pop(job_id, None)
-        if p:  # chat-only callers that never commit still hear back
-            await say(ctx, p["sender"], f"payment window expired (job {job_id}); no fix was run.")
+        await close(ctx, job_id, "payment window expired")  # chat-only callers still hear back
 
     @chat.on_message(ChatMessage)
     async def on_chat(ctx: Context, sender: str, msg: ChatMessage):
@@ -100,8 +108,9 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=dorado_get_tx) -> Age
         is_fix = isinstance(action, Fix)
         if is_fix and paid_on:  # no quota: the fix runs once paid, in on_commit
             job_id = str(uuid4())
+            until = (datetime.now(timezone.utc) + timedelta(seconds=WINDOW)).strftime("%H:%M:%S UTC")
             pending_payments[job_id] = {"sender": sender, "url": action.url, "deadline": time.monotonic() + WINDOW,
-                                        "timer": asyncio.create_task(expire(ctx, job_id))}
+                                        "until": until, "timer": asyncio.create_task(expire(ctx, job_id))}
             ctx.logger.info(f"job {job_id} payment requested")
             await ctx.send(sender, RequestPayment(
                 accepted_funds=[Funds(currency="FET", amount="0.5", payment_method="fet_direct")],
@@ -126,32 +135,40 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=dorado_get_tx) -> Age
 
     @pay.on_message(CommitPayment)
     async def on_commit(ctx: Context, sender: str, msg: CommitPayment):
-        async def refuse(why: str):  # the job stays pending until its deadline, so the buyer may retry
-            await ctx.send(sender, CancelPayment(transaction_id=msg.transaction_id, reason=why))
-            await say(ctx, sender, f"Payment not verified ({why}); no fix was run.")
-
         job_id, tx_hash = msg.reference or "", msg.transaction_id
 
-        def live():  # the sender's own, unexpired, still-open job
+        async def check():
+            """The sender's own open job; closes it (terminal) if its deadline passed; None = not usable."""
             p = pending_payments.get(job_id)
-            return p if p and p["sender"] == sender and time.monotonic() < p["deadline"] else None
+            if not p or p["sender"] != sender:  # a stranger can't touch someone else's reference
+                await ctx.send(sender, CancelPayment(transaction_id=tx_hash, reason="unknown payment reference"))
+                await say(ctx, sender, "Payment not accepted: unknown payment reference; no fix was run.")
+                return None
+            if time.monotonic() >= p["deadline"]:
+                await close(ctx, job_id, "payment window expired")
+                return None
+            return p
 
-        if not live():  # a stranger can't touch someone else's reference
-            return await refuse("unknown or expired payment reference")
+        async def retry(why: str):  # NON-terminal: the reference stays open until its deadline
+            await say(ctx, sender, f"Payment not accepted: {why}. Fix it and resend CommitPayment "
+                                   f"before {p['until']}.", end=False)
+
+        if not (p := await check()):
+            return
         ctx.logger.info(f"job {job_id} tx={tx_hash}")  # the hash only, never tx contents
         try:
             tx = await asyncio.to_thread(get_tx, tx_hash)  # blocking query, off the event loop
         except Exception:
-            return await refuse("transaction lookup failed")
+            return await retry("transaction lookup failed")
         if tx is None:  # not indexed yet or chain unreachable: keep the job and its timer
             return await say(ctx, sender, "transaction not found yet - resend CommitPayment", end=False)
-        # From here to the pop there is no await: re-check the job (it may have expired or been paid
-        # during the lookup), check-and-add `used_tx`, consume the reference.
-        p = live()
-        if not p or not verify_fet_payment(tx_hash, pay_to, PRICE_AFET, lambda _: tx, used_tx, job_id):
-            return await refuse("unknown or expired payment reference" if not p else
-                                "memo must equal the payment reference" if tx.get("memo") != job_id else
-                                "transaction failed, below 0.5 TEST FET, wrong recipient or already used")
+        # The job may have expired or been paid during the lookup. If it is still the same open job,
+        # there is no await from the deadline check through verify (check-and-add `used_tx`) to the pop.
+        if pending_payments.get(job_id) is not p or time.monotonic() >= p["deadline"]:
+            return await check()
+        if not verify_fet_payment(tx_hash, pay_to, PRICE_AFET, lambda _: tx, used_tx, job_id):
+            return await retry("memo must equal the payment reference" if tx.get("memo") != job_id else
+                               "transaction failed, below 0.5 TEST FET, wrong recipient or already used")
         del pending_payments[job_id]
         p["timer"].cancel()
         await ctx.send(sender, CompletePayment(transaction_id=tx_hash))
@@ -164,8 +181,7 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=dorado_get_tx) -> Age
     async def on_reject(ctx: Context, sender: str, msg: RejectPayment):
         # RejectPayment carries no reference: drop every open request from this sender
         for job_id in [j for j, p in pending_payments.items() if p["sender"] == sender]:
-            pending_payments.pop(job_id)["timer"].cancel()
-        await say(ctx, sender, "Payment declined; no fix was run.")
+            await close(ctx, job_id, "payment declined")
 
     @chat.on_message(ChatAcknowledgement)
     async def on_ack(ctx: Context, sender: str, msg: ChatAcknowledgement):
