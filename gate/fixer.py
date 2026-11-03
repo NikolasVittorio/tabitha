@@ -2,7 +2,7 @@ from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 
-from gate.allowlist import patch_violations
+from gate.allowlist import parse, patch_violations
 from gate.contrast import fix_fg
 from gate.models import Finding, Fix
 
@@ -63,14 +63,19 @@ def _apply(soup: BeautifulSoup, f: Finding) -> tuple[str, str]:
 
 
 def fix(html: str, findings: list[Finding], rules: set[str] | None = None) -> tuple[str, list[Fix]]:
-    soup, fixes = BeautifulSoup(html, "html.parser"), []
-    for f in findings:
-        if rules is not None and f.rule_id not in rules:
-            continue
+    todo = [f for f in findings if rules is None or f.rule_id in rules]
+    try:
+        soup = parse(html)
+    except ValueError as e:  # duplicate attributes: serialising would change what browsers see
+        return html, [Fix(rule_id=f.rule_id, selector=f.selector, outcome="not_fixed", note=str(e)) for f in todo]
+    fixes = []
+    for f in todo:
         before = str(soup)
         outcome, note = _apply(soup, f)
         v = patch_violations(before, str(soup))
         if v:  # revert this rule's change
-            soup, outcome, note = BeautifulSoup(before, "html.parser"), "not_fixed", "; ".join(v)
+            soup, outcome, note = parse(before), "not_fixed", "; ".join(v)
         fixes.append(Fix(rule_id=f.rule_id, selector=f.selector, outcome=outcome, note=note))
+    if not any(x.outcome == "fixed" for x in fixes):
+        return html, fixes  # nothing applied: hand back the original bytes, not a re-serialisation
     return str(soup), fixes

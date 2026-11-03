@@ -22,3 +22,11 @@ def test_duplicate_id_blocked_by_allowlist():
 def test_missing_element():
     _, fixes = fix('<html><body></body></html>', [f("button-name", "button")])
     assert fixes[0].outcome == "not_fixed"
+def test_duplicate_attrs_return_original_untouched():
+    html = '<html><body><a href="/s" href="https://evil.example">Go</a></body></html>'
+    out, fixes = fix(html, [f("html-has-lang")])
+    assert out == html and fixes[0].outcome == "not_fixed"
+def test_nothing_fixed_returns_original_string():
+    html = '<html><body><img src=a.png></body></html>'
+    out, _ = fix(html, [f("image-alt", "img")])
+    assert out == html

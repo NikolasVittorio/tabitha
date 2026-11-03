@@ -20,3 +20,16 @@ def test_more_rejections_and_allowed():
         assert patch_violations(B, a), a
     H = B.replace('<html>', '<html><head></head>')
     assert patch_violations(H, H.replace('</head>', '<title>T</title></head>')) == []
+
+
+def test_regression_codex_payloads():
+    def v(a, b):
+        return patch_violations(f"<html><body>{a}</body></html>", f"<html><body>{b}</body></html>")
+    assert v('<a href="/safe">Go</a>', '<a href="/safe" href="https://evil.example">Go</a>')
+    assert v('<svg></svg>', '<svg><title><img src="x" onerror="alert(1)"></title></svg>')
+    assert v('<p style="display:block">x</p>', '<p style="display:none!important;display:block">x</p>')
+    assert v('<button>Buy</button><button></button>', '<button></button><button>Buy</button>')
+    assert v('<div></div><p>Payment</p>', '<div><p>Payment</p></div>')
+    assert v('<p>x</p>', '<p style="color:url(http://e/x)">x</p>')
+    H = '<html><head></head><body></body></html>'
+    assert patch_violations(H, H.replace('</head>', '<title><b>x</b></title></head>'))
