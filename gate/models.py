@@ -67,6 +67,11 @@ class Receipt(Model):
     public_key_hex: str
 
 
+class A11yCheckRequest(Model):
+    url: str
+    mode: Literal["check", "fix"] = "check"
+
+
 class Report(Model):
     job_id: str
     url: str

@@ -19,17 +19,19 @@ from uagents_core.identity import Identity
 from agents.rpc import Pending
 from agents.subagents import make_fixer, make_scanner, make_walker
 from gate.chat import QUOTA_REPLY, Fix, Reply, parse_chat
-from gate.models import FixResult, ScanResult, WalkResult
+from gate.models import A11yCheckRequest, FixResult, Report, ScanResult, WalkResult
 from gate.payment import PRICE_AFET, dorado_get_tx, verify_fet_payment
 from gate.pipeline import run_gate
 from gate.quota import Quota
 from gate.receipt import sign_receipt
-from gate.report import render_chat
+from gate.report import build_report, render_chat
 
 BUSY = "Busy — try again in a minute."
 NO_RECEIPT = "signed scan log unavailable (no signing key configured)"
 WINDOW = 300  # seconds a payment reference stays valid
 FREE_FIX = "payment disabled for the event"
+TYPED_DIFF_CAP = 50_000
+PAY_OVER_CHAT = "send `fix <url>` over the Chat Protocol to pay 0.5 TEST FET"
 
 
 def receipt_key() -> str | None:
@@ -54,6 +56,7 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=dorado_get_tx) -> Age
     sem = asyncio.Semaphore(2)  # at most 2 jobs in flight; the rest get BUSY, not a queue
     chat = Protocol(spec=chat_protocol_spec)
     pay = Protocol(spec=payment_protocol_spec, role="seller")
+    check_proto = Protocol(name="a11y_gate_check", version="0.1.0")
     paid_on = os.environ.get("PAYMENT_ENABLED", "1") != "0"
     pay_to = str(agent.wallet.address())  # Dorado address the buyer pays
     # ponytail: in memory, lost on restart (like the quota); a restart drops unpaid jobs and the replay set
@@ -70,7 +73,7 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=dorado_get_tx) -> Age
 
     scan_rpc, walk_rpc, fix_rpc = rpc("scan"), rpc("walk"), rpc("fix")
 
-    async def run_job(ctx: Context, job_id: str, url: str, is_fix: bool) -> str:
+    async def run_job(ctx: Context, job_id: str, url: str, is_fix: bool) -> Report:
         """Caller holds a semaphore slot."""
         ctx.logger.info(f"job {job_id} url_sha256={hashlib.sha256(url.encode()).hexdigest()}")
         r = await run_gate(job_id, url, lambda q: scan_rpc(ctx, q), lambda q: walk_rpc(ctx, q),
@@ -81,7 +84,18 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=dorado_get_tx) -> Age
             except Exception:  # no key, or nothing to bind to: reply unsigned, never crash
                 r = r.copy(update={"note": "; ".join(x for x in (r.note, NO_RECEIPT) if x)})
         ctx.logger.info(f"job {job_id} error={r.error} rules={sorted({f.rule_id for f in r.findings})}")
-        return render_chat(r)
+        return r
+
+    async def admit(ctx: Context, sender: str, today, url: str, is_fix: bool, charge: bool) -> Report | str:
+        """Admission shared by chat and typed callers: a Report, or "quota_exceeded" / "busy".
+        charge=False when the quota was already taken (parse_chat charges chat scans)."""
+        if charge and not quota.allow(sender, today):
+            return "quota_exceeded"
+        if sem.locked():  # no await between this check and `async with`, so no race
+            quota.refund(sender, today)  # rejected work is not charged
+            return "busy"
+        async with sem:
+            return await run_job(ctx, str(uuid4()), url, is_fix)
 
     async def say(ctx: Context, to: str, text: str, end: bool = True):
         await ctx.send(to, ChatMessage(content=[TextContent(text=text)] + ([EndSessionContent()] if end else [])))
@@ -119,19 +133,31 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=dorado_get_tx) -> Age
             await say(ctx, sender, f"Payment requested: 0.5 TEST FET to {pay_to} on Dorado testnet "
                                    f"with tx memo {job_id}, within {WINDOW} s.", end=False)
             return
-        if is_fix and not quota.allow(sender, today):  # payment off: fix rides the free scan quota
-            text = QUOTA_REPLY
-        elif isinstance(action, Reply):
-            text = action.text
-        elif sem.locked():  # no await between this check and `async with`, so no race
-            quota.refund(sender, today)  # rejected work is not charged
-            text = BUSY
+        if isinstance(action, Reply):
+            return await say(ctx, sender, action.text)
+        # payment off: a fix rides the free scan quota; a scan was already charged by parse_chat
+        r = await admit(ctx, sender, today, action.url, is_fix, charge=is_fix)
+        if isinstance(r, str):
+            text = QUOTA_REPLY if r == "quota_exceeded" else BUSY
         else:
-            async with sem:
-                text = await run_job(ctx, str(uuid4()), action.url, is_fix)
-            if is_fix:
-                text = f"{FREE_FIX}\n\n{text}"
+            text = f"{FREE_FIX}\n\n{render_chat(r)}" if is_fix else render_chat(r)
         await say(ctx, sender, text)
+
+    @check_proto.on_message(A11yCheckRequest, replies=Report)
+    async def on_check(ctx: Context, sender: str, msg: A11yCheckRequest):
+        job_id, url = str(uuid4()), msg.url
+        if not (isinstance(url, str) and len(url) <= 2048 and url.startswith(("http://", "https://"))):
+            return await ctx.send(sender, build_report(job_id, "", [], [], error="bad_request"))  # never echo it
+        if msg.mode == "fix" and paid_on:  # payment runs over chat only; a typed fix never runs unpaid
+            r = build_report(job_id, url, [], [], error="payment_required")
+            return await ctx.send(sender, r.copy(update={"note": PAY_OVER_CHAT}))
+        r = await admit(ctx, sender, datetime.now(timezone.utc).date(), url, msg.mode == "fix", charge=True)
+        if isinstance(r, str):
+            r = build_report(job_id, url, [], [], error=r)
+        elif len(r.diff) > TYPED_DIFF_CAP:  # the diff is not in the signed receipt payload
+            cut = f"diff truncated at {TYPED_DIFF_CAP} characters"
+            r = r.copy(update={"diff": r.diff[:TYPED_DIFF_CAP], "note": "; ".join(x for x in (r.note, cut) if x)})
+        await ctx.send(sender, r)
 
     @pay.on_message(CommitPayment)
     async def on_commit(ctx: Context, sender: str, msg: CommitPayment):
@@ -173,8 +199,8 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=dorado_get_tx) -> Age
         p["timer"].cancel()
         # ponytail: in-memory, testnet only; a restart mid-job loses the paid job. Persist before real money.
         async with sem:  # paid jobs wait for a slot instead of getting BUSY
-            text = await run_job(ctx, job_id, p["url"], True)
-        await say(ctx, sender, text)
+            r = await run_job(ctx, job_id, p["url"], True)
+        await say(ctx, sender, render_chat(r))
         await ctx.send(sender, CompletePayment(transaction_id=tx_hash))  # only after the report is delivered
 
     @pay.on_message(RejectPayment)
@@ -189,6 +215,7 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=dorado_get_tx) -> Age
 
     agent.include(chat, publish_manifest=True)
     agent.include(pay, publish_manifest=True)
+    agent.include(check_proto, publish_manifest=True)
 
     def resolver(kind: str, model):
         @agent.on_message(model)
