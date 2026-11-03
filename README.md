@@ -7,7 +7,7 @@ AI agents are shipping websites at machine speed, and most of those pages break 
 
 ## Not an overlay
 
-Overlay widgets add a script to the live page and claim to repair it. A11y Gate doesn't. It opens the page in a real browser, measures it, and (with `fix`) returns a patch to the page's own source. Every fix is re-checked by scanning the patched page again, with scripts off, and dropped if anything gets worse. No AI model writes the results. Untested criteria are always listed, and the report never says a page meets WCAG.
+Overlay widgets add a script to the live page and claim to repair it. A11y Gate doesn't. It opens the page in a real browser, measures it, and (with `fix`) returns a patch to the page's own source. Every fix is re-checked by scanning the patched page again, with scripts off, and dropped if the rescan finds any new failure. No AI model writes the results. Untested criteria are always listed, and the report never says a page meets WCAG.
 
 ## The problem
 
@@ -45,7 +45,7 @@ Send a chat message to the lead (for example from ASI:One):
 
 - `check <url>`: free automated scan plus keyboard walk. 5 per sender per UTC day. A bare domain works too: `check example.com` and `example.com` both scan `https://example.com`. A full `http://` or `https://` URL in the message wins; emails and file names like `index.html` are ignored.
 - `fix <url>`: patch rechecked on the page source with scripts off (page scripts are not re-run) plus signed scan log, 0.5 TEST FET on Dorado testnet. Live charging is off.
-- `recheck <url>`: a free scan like `check`, sent after a fix. When you have scanned the same URL before, any scan reply adds a "Since your last scan" line: issue counts before and after, how many are no longer detected and how many are new. It then lists up to 5 of the new ones under "New since your last scan:".
+- `recheck <url>`: a free scan like `check`, sent after a fix. When you have scanned the same URL before, any scan reply adds a "Since your last scan" line: issue counts before and after, how many are no longer detected and how many are new. It then lists up to 5 of the new ones under "New since your last scan:". These are automated issues (`fail` and `needs_author` findings); needs-review findings are not compared. If focus visibility was only partly checked on either scan (time limit), the reply says focus issues can show as new or no longer detected for that reason alone.
 
 Scan replies also show the page's accessibility tree when it can be read, in the "What an AI agent sees" section. After a `fix` it shows the tree before and after the patch, both taken from the page source with scripts off.
 
@@ -53,7 +53,7 @@ Scan replies also show the page's accessibility tree when it can be read, in the
 
 Set `PAYMENT_ENABLED=0` to switch payment off for the event: `fix` then runs free, counts against the 5 free scans per day, and its chat reply is labelled "payment disabled for the event". The default is `1`.
 
-Input is a single public http(s) URL or bare domain. No crawling, no pasted HTML. Each page gets 30 s and 2 MB at most.
+Input is a single public http(s) URL (bare domains in chat only). No crawling, no pasted HTML. Each page gets 30 s and 2 MB at most.
 
 ## Calling it from your agent
 
@@ -65,7 +65,7 @@ class A11yCheckRequest(Model):
     mode: Literal["check", "fix"] = "check"
 ```
 
-The reply is the same `Report` model the lead builds for chat (see `gate/models.py`). `delta` holds the "Since your last scan" counts for a repeat scan of the same URL (otherwise it is null), and `delta.new_at` holds the indices into `findings` of the new ones; `tree_before` and `tree_after` hold the accessibility trees:
+The reply is the same `Report` model the lead builds for chat (see `gate/models.py`). `delta` holds the "Since your last scan" counts of automated issues (`fail` and `needs_author`; needs-review findings are not compared) for a repeat scan of the same URL (otherwise it is null), `delta.new_at` holds the indices into `findings` of the new ones, and `delta.partial` is true when focus visibility was only partly checked on either scan (time limit), so focus issues can show as new or no longer detected for that reason alone; `tree_before` and `tree_after` hold the accessibility trees:
 
 ```python
 @agent.on_interval(period=3600)
