@@ -22,7 +22,12 @@ def _apply(soup: BeautifulSoup, f: Finding) -> tuple[str, str]:
         return "needs_author", "alt text needs a human description"
     if r not in LABEL_RULES | {"html-has-lang", "document-title", "color-contrast", "duplicate-id"}:
         return "not_fixed", "no deterministic fix for this rule"
-    el = soup.select_one(f.selector)
+    if f.data.get("nested"):
+        return "not_fixed", "target is inside a frame or shadow root"
+    try:
+        el = soup.select_one(f.selector)
+    except Exception:  # soupsieve SelectorSyntaxError and friends
+        return "not_fixed", "invalid selector"
     if el is None:
         return "not_fixed", "selector matched nothing"
     if r == "html-has-lang":
