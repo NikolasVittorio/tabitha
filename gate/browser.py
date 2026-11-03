@@ -51,10 +51,12 @@ async def _context(timeout_s, allow_ips, max_bytes):
             # Chromium follows redirects of routed requests internally, unchecked. So fetch
             # with max_redirects=0 and follow hops here, checking every hop.
             for _ in range(10):
-                if total > 10 * max_bytes:  # budget spent: fetch nothing more
+                if total >= 10 * max_bytes:  # budget spent: fetch nothing more
                     raise _TooLarge
                 # getaddrinfo blocks, keep it off the event loop
                 await asyncio.to_thread(check_url, url, allow_ips)
+                if total >= 10 * max_bytes:  # another route may have spent it during the DNS await
+                    raise _TooLarge
                 resp = await route.fetch(max_redirects=0, **kw)
                 # ponytail: the driver still buffers one whole response before we can look at it;
                 # the deadline plus the Fly memory limit bound it. Upgrade: httpx streaming guard.
@@ -90,10 +92,11 @@ async def _context(timeout_s, allow_ips, max_bytes):
             await ctx.route("**/*", guard)
             await ctx.route_web_socket("**/*", lambda ws: ws.close())  # never open a real socket
             yield ctx, blocked
-            if "too_large" in blocked:  # e.g. a fetch fired after load
-                raise ValueError("too_large")
         finally:
             await browser.close()
+            # after close, so teardown-time records count; in finally, so exceptional exits too
+            if "too_large" in blocked:
+                raise ValueError("too_large")
 
 
 @asynccontextmanager
@@ -117,8 +120,8 @@ async def open_page(url, *, allow_ips=frozenset(), timeout_s: float = 30, max_by
 
 
 @asynccontextmanager
-async def open_html(html, base_url, *, allow_ips=frozenset(), timeout_s: float = 30):
-    async with _context(timeout_s, allow_ips, 2_000_000) as (ctx, _):
+async def open_html(html, base_url, *, allow_ips=frozenset(), timeout_s: float = 30, max_bytes: int = 2_000_000):
+    async with _context(timeout_s, allow_ips, max_bytes) as (ctx, _):
         page = await ctx.new_page()
         await page.set_content(f'<base href="{escape(base_url, quote=True)}">{html}')
         yield page

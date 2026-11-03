@@ -57,3 +57,40 @@ async def test_late_oversized_fetch_surfaces_on_exit(http_server):
     with pytest.raises(ValueError, match="too_large"):
         async with open_page(f"{http_server}/late.html", allow_ips=LOCAL, max_bytes=2000) as (page, _):
             await page.wait_for_timeout(1000)
+import itertools
+from conftest import HITS
+from gate.browser import _context
+BLOBS = lambda: [h for h in HITS if h.startswith("/blob.txt")]
+async def test_budget_exact_boundary(http_server):
+    # blob.txt is 1500 bytes; budget = 15000 = exactly 10 blobs, so the 11th+ must not be fetched
+    HITS.clear()
+    js = "(async()=>{for(let i=0;i<15;i++){await fetch('/blob.txt?'+i).catch(()=>{})}})()"
+    with pytest.raises(ValueError, match="too_large"):
+        async with _context(30, LOCAL, 1500) as (ctx, _):
+            page = await ctx.new_page()
+            await page.set_content(f'<base href="{http_server}/">')
+            await page.evaluate(js)
+    assert len(BLOBS()) == 10
+async def test_concurrent_routes_no_fetch_after_exhaustion(http_server, monkeypatch):
+    HITS.clear()
+    calls = itertools.count()
+    def slow_after_ten(*a):  # first 10 lookups instant, the rest still in DNS while the budget is spent
+        if next(calls) >= 10: time.sleep(1)
+    monkeypatch.setattr(browser, "check_url", slow_after_ten)
+    imgs = "".join(f'<img src="/blob.txt?{i}">' for i in range(15))
+    with pytest.raises(ValueError, match="too_large"):
+        async with _context(30, LOCAL, 1500) as (ctx, _):
+            page = await ctx.new_page()
+            await page.set_content(f'<base href="{http_server}/">{imgs}')
+    assert len(BLOBS()) == 10
+async def test_late_too_large_wins_over_caller_exception_page(http_server):
+    with pytest.raises(ValueError, match="too_large"):
+        async with open_page(f"{http_server}/late.html", allow_ips=LOCAL, max_bytes=2000):
+            await asyncio.sleep(1)
+            raise RuntimeError("caller")
+async def test_late_too_large_wins_over_caller_exception_html(http_server):
+    html = f"<script>setTimeout(() => fetch('{http_server}/big.txt').catch(() => {{}}), 100)</script>"
+    with pytest.raises(ValueError, match="too_large"):
+        async with open_html(html, http_server, allow_ips=LOCAL, max_bytes=2000):
+            await asyncio.sleep(1)
+            raise RuntimeError("caller")

@@ -7,10 +7,12 @@ from pathlib import Path
 import pytest
 
 FIXTURES = Path(__file__).parent / "fixtures"
+HITS: list[str] = []  # every GET path the server saw
 
 
 class _Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
+        HITS.append(self.path)
         if self.path == "/redirect-metadata":
             self.send_response(302)
             self.send_header("Location", "http://169.254.169.254/")
