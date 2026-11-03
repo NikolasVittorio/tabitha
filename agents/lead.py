@@ -141,8 +141,8 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=dorado_get_tx) -> Age
             """The sender's own open job; closes it (terminal) if its deadline passed; None = not usable."""
             p = pending_payments.get(job_id)
             if not p or p["sender"] != sender:  # a stranger can't touch someone else's reference
-                await ctx.send(sender, CancelPayment(transaction_id=tx_hash, reason="unknown payment reference"))
-                await say(ctx, sender, "Payment not accepted: unknown payment reference; no fix was run.")
+                # never terminal: only close() ends a session, and it runs once per reference
+                await say(ctx, sender, "Unknown or closed payment reference.", end=False)
                 return None
             if time.monotonic() >= p["deadline"]:
                 await close(ctx, job_id, "payment window expired")

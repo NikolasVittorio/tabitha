@@ -3,7 +3,9 @@ import logging
 
 from uagents import Model
 from uagents_core.contrib.protocols.chat import ChatMessage, EndSessionContent, TextContent
-from uagents_core.contrib.protocols.payment import CancelPayment, CommitPayment, CompletePayment, Funds, RequestPayment
+from uagents_core.contrib.protocols.payment import (
+    CancelPayment, CommitPayment, CompletePayment, Funds, RejectPayment, RequestPayment,
+)
 
 import agents.lead as lead_mod
 from gate.payment import verify_fet_payment, PRICE_AFET
@@ -54,7 +56,9 @@ def setup(boom=()):
     agent = lead_mod.make_lead("seed", SUBS, get_tx=get_tx)
     h = lambda m: agent._signed_message_handlers[Model.build_schema_digest(m)]
     pay = lambda h_, req: chain.__setitem__(h_, tx(to=str(agent.wallet.address()), memo=req.reference))
-    return pay, h(ChatMessage), h(CommitPayment), Ctx()
+    ctx = Ctx()
+    ctx.on_reject = h(RejectPayment)
+    return pay, h(ChatMessage), h(CommitPayment), ctx
 
 
 async def request(on_chat, ctx, sender):
@@ -86,6 +90,14 @@ def cancels(ctx, who):
     return sum(1 for to, m in ctx.sent if to == who and isinstance(m, CancelPayment))
 
 
+def ends(ctx, who):
+    return sum(1 for to, m in ctx.sent if to == who and isinstance(m, ChatMessage)
+               and any(isinstance(c, EndSessionContent) for c in m.content))
+
+
+UNKNOWN = "Unknown or closed payment reference."
+
+
 async def settle():  # let handlers run, including the to_thread tx lookup
     for _ in range(20):
         await asyncio.sleep(0.01)
@@ -98,7 +110,8 @@ async def test_wrong_sender_rejected_then_owner_pays():
     assert req.accepted_funds[0].amount == "0.5" and req.accepted_funds[0].payment_method == "fet_direct"
     pay("h1", req)
     await on_commit(ctx, "mallory", commit(req, "h1"))
-    assert isinstance(ctx.sent[-2][1], CancelPayment) and ctx.sent[-1][0] == "mallory"
+    assert ctx.sent[-1][0] == "mallory" and ctx.sent[-1][1].text() == UNKNOWN
+    assert cancels(ctx, "mallory") == 0 and ends(ctx, "mallory") == 0
     assert dispatched(ctx) == []
     job = asyncio.create_task(on_commit(ctx, "alice", commit(req, "h1")))  # reference not consumed by mallory
     await settle()
@@ -161,8 +174,10 @@ async def test_expired_reference_rejected(monkeypatch):
     assert ctx.sent[-1][0] == "bob" and "payment window expired" in ctx.sent[-1][1].text()
     assert cancels(ctx, "bob") == 1 and cancels(ctx, "alice") == 1  # once each: commit-time and timer expiry
     pay("h2", req2)
-    await on_commit(ctx, "bob", commit(req2, "h2"))
-    assert isinstance(ctx.sent[-2][1], CancelPayment) and dispatched(ctx) == []
+    for _ in range(3):  # late commits on the closed reference are never terminal again
+        await on_commit(ctx, "bob", commit(req2, "h2"))
+        assert ctx.sent[-1][1].text() == UNKNOWN
+    assert cancels(ctx, "bob") == 1 and ends(ctx, "bob") == 1 and dispatched(ctx) == []
 
 
 async def test_replayed_hash_rejected_across_jobs():
@@ -177,7 +192,7 @@ async def test_replayed_hash_rejected_across_jobs():
     assert len(dispatched(ctx)) == n
     pay("h9", req1)
     await on_commit(ctx, "alice", commit(req1, "h9"))  # a reference is consumed once
-    assert isinstance(ctx.sent[-2][1], CancelPayment) and len(dispatched(ctx)) == n
+    assert ctx.sent[-1][1].text() == UNKNOWN and len(dispatched(ctx)) == n
     job.cancel()
 
 
@@ -211,3 +226,11 @@ async def test_payment_disabled_reply_is_labelled(monkeypatch):
     pay, on_chat, on_commit, ctx = setup()
     await on_chat(ctx, "alice", ChatMessage(content=[TextContent(text="fix https://e.com")]))
     assert "payment disabled for the event" in ctx.sent[-1][1].text()
+
+
+async def test_reject_twice_cancels_each_open_job_once():
+    pay, on_chat, on_commit, ctx = setup()
+    await request(on_chat, ctx, "alice"), await request(on_chat, ctx, "alice")
+    for _ in range(2):
+        await ctx.on_reject(ctx, "alice", RejectPayment(reason="no"))
+    assert cancels(ctx, "alice") == 2 and ends(ctx, "alice") == 2  # one per open job, not per reject
