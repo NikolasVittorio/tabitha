@@ -1,0 +1,31 @@
+from collections import OrderedDict
+from datetime import datetime
+from hashlib import sha256
+
+from gate.models import Delta, Report
+
+
+def _h(*parts: str) -> str:
+    return sha256("\n".join(parts).encode()).hexdigest()
+
+
+class History:
+    """Per (sender, url) hashes of the last scan's issues. No plain sender, url or selector is kept."""
+
+    # ponytail: in memory, lost on restart (like the quota); capped, oldest evicted
+    def __init__(self, max_entries: int = 1000):
+        self.max, self.d = max_entries, OrderedDict()
+
+    def compare(self, sender: str, url: str, r: Report, now: datetime) -> Delta | None:
+        if r.error:
+            return None
+        key = _h(sender, url)
+        cur = frozenset(_h(f.rule_id, f.selector) for f in r.findings if f.status in ("fail", "needs_author"))
+        prev = self.d.pop(key, None)  # pop + re-insert moves it to the newest slot
+        self.d[key] = (cur, r.violation_count, now.strftime("%H:%M UTC %d %b"))
+        while len(self.d) > self.max:
+            self.d.popitem(last=False)
+        if prev is None:
+            return None
+        ids, count, since = prev
+        return Delta(since=since, before=count, after=r.violation_count, gone=len(ids - cur), new=len(cur - ids))
