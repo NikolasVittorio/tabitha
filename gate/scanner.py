@@ -13,7 +13,7 @@ TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
 
 async def aria_tree(page: Page) -> str:
     try:
-        return (await page.locator("body").aria_snapshot())[:TREE_CAP]
+        return (await page.locator("body").aria_snapshot(timeout=5000))[:TREE_CAP]  # 5s: must not eat the context's 30s deadline
     except Exception:  # ponytail: the tree is a nicety, never let it fail the scan
         return ""
 

@@ -101,3 +101,17 @@ async def test_aria_tree_shows_names():
                          "http://127.0.0.1/") as page:
         t = await aria_tree(page)
     assert 'button "Buy now"' in t and t.count("- button") == 2
+
+
+async def test_aria_tree_timeout_returns_empty():
+    seen = {}
+
+    class Loc:
+        async def aria_snapshot(self, timeout=None):
+            seen["timeout"] = timeout
+            raise TimeoutError("stalled")
+
+    class Page:
+        def locator(self, _): return Loc()
+
+    assert await aria_tree(Page()) == "" and seen["timeout"] == 5000
