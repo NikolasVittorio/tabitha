@@ -25,3 +25,31 @@ async def test_open_html_blocks_subresource():
     async with open_html('<img src="/x.png"><p>x</p>', "http://169.254.169.254/") as page:
         assert await page.inner_text("p") == "x"
         assert await page.evaluate("document.images[0].naturalWidth") == 0
+import asyncio, socket, time
+import gate.browser as browser
+async def test_service_workers_blocked(http_server):
+    async with open_page(f"{http_server}/sw.html", allow_ips=LOCAL) as (page, _):
+        # blocked: register() is stubbed (resolves undefined) and no worker ever starts
+        reg = await page.evaluate("navigator.serviceWorker.register('/sw.js').then(r => r ? 'registered' : 'stubbed')")
+        await page.wait_for_timeout(500)
+        assert reg == "stubbed" and page.context.service_workers == []
+async def test_websocket_never_connects():
+    srv = socket.socket(); srv.bind(("127.0.0.1", 0)); srv.listen(); srv.setblocking(False)
+    port = srv.getsockname()[1]
+    try:
+        async with open_html(f'<script>new WebSocket("ws://127.0.0.1:{port}")</script>', "http://example.com/", allow_ips=LOCAL) as page:
+            await page.wait_for_timeout(1000)
+        with pytest.raises(BlockingIOError):
+            srv.accept()
+    finally:
+        srv.close()
+async def test_job_byte_budget(http_server):
+    # page and each blob are under max_bytes, but 15 blobs exceed the 10 * max_bytes budget
+    with pytest.raises(ValueError, match="too_large"):
+        async with open_page(f"{http_server}/budget.html", allow_ips=LOCAL, max_bytes=2000): pass
+async def test_dns_under_deadline(monkeypatch, http_server):
+    monkeypatch.setattr(browser, "check_url", lambda *a: time.sleep(5))
+    t = time.monotonic()
+    with pytest.raises(TimeoutError):
+        async with open_page(f"{http_server}/clean.html", allow_ips=LOCAL, timeout_s=1): pass
+    assert time.monotonic() - t < 3

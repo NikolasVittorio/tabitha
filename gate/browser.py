@@ -13,6 +13,10 @@ class Blocked(Exception):
     pass
 
 
+class _TooLarge(Exception):
+    pass
+
+
 def check_url(url: str, allow_ips: frozenset[str] = frozenset()) -> None:
     u = urlsplit(url)
     if u.scheme not in ("http", "https") or not u.hostname:
@@ -35,11 +39,13 @@ def check_url(url: str, allow_ips: frozenset[str] = frozenset()) -> None:
 
 
 @asynccontextmanager
-async def _context(timeout_s, allow_ips):
+async def _context(timeout_s, allow_ips, max_bytes):
     """Fresh browser+context with the guard installed; yields (context, blocked_list)."""
     blocked: list[str] = []
+    total = 0
 
     async def guard(route):
+        nonlocal total
         url, kw = route.request.url, {}
         try:
             # Chromium follows redirects of routed requests internally, unchecked. So fetch
@@ -48,6 +54,14 @@ async def _context(timeout_s, allow_ips):
                 # getaddrinfo blocks, keep it off the event loop
                 await asyncio.to_thread(check_url, url, allow_ips)
                 resp = await route.fetch(max_redirects=0, **kw)
+                # ponytail: the driver still buffers one whole response before we can look at it;
+                # the deadline plus the Fly memory limit bound it. Upgrade: httpx streaming guard.
+                if int(resp.headers.get("content-length") or 0) > max_bytes:
+                    raise _TooLarge
+                body = await resp.body()
+                total += len(body)
+                if len(body) > max_bytes or total > 10 * max_bytes:  # per-job budget, all requests
+                    raise _TooLarge
                 loc = resp.headers.get("location")
                 if resp.status not in (301, 302, 303, 307, 308) or not loc:
                     # ponytail: page.url stays the original URL after a redirect
@@ -55,6 +69,9 @@ async def _context(timeout_s, allow_ips):
                 url = urljoin(url, loc)
                 kw = {"url": url, **({"method": "GET"} if resp.status in (301, 302, 303) else {})}
             await route.abort()  # redirect loop
+        except _TooLarge:
+            blocked.append("too_large")
+            await route.abort("blockedbyclient")
         except Blocked as e:
             blocked.append(str(e))
             await route.abort("blockedbyclient")
@@ -66,8 +83,10 @@ async def _context(timeout_s, allow_ips):
         browser = await p.chromium.launch()
         try:
             ctx = await browser.new_context(accept_downloads=False, reduced_motion="reduce",
+                                            service_workers="block",
                                             viewport={"width": 1280, "height": 800})
             await ctx.route("**/*", guard)
+            await ctx.route_web_socket("**/*", lambda ws: ws.close())  # never open a real socket
             yield ctx, blocked
         finally:
             await browser.close()
@@ -75,26 +94,27 @@ async def _context(timeout_s, allow_ips):
 
 @asynccontextmanager
 async def open_page(url, *, allow_ips=frozenset(), timeout_s: float = 30, max_bytes: int = 2_000_000):
-    check_url(url, allow_ips)
-    async with _context(timeout_s, allow_ips) as (ctx, blocked):
+    async with _context(timeout_s, allow_ips, max_bytes) as (ctx, blocked):
+        await asyncio.to_thread(check_url, url, allow_ips)  # DNS, under the deadline
         page = await ctx.new_page()
         try:
             resp = await page.goto(url, timeout=0)  # wall-clock cap is the asyncio.timeout above
         except PlaywrightError:
+            if "too_large" in blocked:
+                raise ValueError("too_large")
             if blocked:
                 raise Blocked(blocked[0])
             raise
+        if "too_large" in blocked:
+            raise ValueError("too_large")
         if blocked and resp is None:
             raise Blocked(blocked[0])
-        body = await resp.body()
-        if len(body) > max_bytes:
-            raise ValueError("too_large")
-        yield page, body.decode("utf-8", "replace")
+        yield page, (await resp.body()).decode("utf-8", "replace")
 
 
 @asynccontextmanager
 async def open_html(html, base_url, *, allow_ips=frozenset(), timeout_s: float = 30):
-    async with _context(timeout_s, allow_ips) as (ctx, _):
+    async with _context(timeout_s, allow_ips, 2_000_000) as (ctx, _):
         page = await ctx.new_page()
         await page.set_content(f'<base href="{escape(base_url, quote=True)}">{html}')
         yield page
