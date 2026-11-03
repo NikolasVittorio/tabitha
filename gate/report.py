@@ -25,21 +25,20 @@ def build_report(job_id, url, findings, tested, fixes=[], diff="", error=None, f
 
 def render_chat(r: Report, max_diff_chars: int = 8000) -> str:
     if r.error:
-        return f"Error: {r.error}\n{USAGE}"
-    fails = [f for f in r.findings if f.status == "fail"]
+        return f"Error: `{r.error}`\n{USAGE}"
+    fails = [f for f in r.findings if f.status in ("fail", "needs_author")]
     out = [f"Status: {r.automated_status} ({r.violation_count} violations)"]
-    out += [f"{f.rule_id} — {f.selector} — WCAG {', '.join(f.wcag)}" for f in fails[:5]]
+    out += [f"{f.rule_id} — `{f.selector}` — WCAG {', '.join(f.wcag)}" for f in fails[:5]]
     out.append(f"Needs review: {sum(f.status == 'needs_review' for f in r.findings)}")
     k = sum(f.source == "walker" and f.status == "fail" for f in r.findings)
     out.append(f"Keyboard: {r.focus_count} focus stops walked, {k} keyboard issues")
     if r.fixes:
         out.append("Fixes:")
-        out += [f"- {x.rule_id} {x.selector}: {x.outcome}" for x in r.fixes]
+        out += [f"- {x.rule_id} `{x.selector}`: {x.outcome}" for x in r.fixes]
     if r.diff:
-        d = r.diff[:max_diff_chars]
+        out.append("Suggested patch (quoted from your page, unchanged):\n```\n" + r.diff[:max_diff_chars] + "\n```")
         if len(r.diff) > max_diff_chars:
-            d += f"\n... (diff truncated at {max_diff_chars} characters)"
-        out.append(d)
+            out.append(f"(diff truncated at {max_diff_chars} characters)")
     out.append(f"Untested criteria: {len(r.untested)} ({', '.join(r.untested)})")
     out.append(r.disclaimer)
     if r.receipt:

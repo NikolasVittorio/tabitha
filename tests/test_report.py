@@ -25,9 +25,21 @@ def test_sections():
     fs = [F(f"r{i}") for i in range(7)] + [F("kb", "fail", "walker"), F("rv", "needs_review")]
     r = build_report("j", "u", fs, ["1.4.3"], fixes=[Fix(rule_id="r0", selector="#x", outcome="fixed", note="n")], diff="D", focus_count=12)
     t = render_chat(r)
-    assert "r0 — #x — WCAG 1.4.3" in t and "r4 — #x" in t and "r5 — #x" not in t
+    assert "r0 — `#x` — WCAG 1.4.3" in t and "r4 — `#x`" in t and "r5 — `#x`" not in t
     assert "Keyboard: 12 focus stops walked, 1 keyboard issues" in t
     assert "r0" in t.split("Fixes")[1] and "fixed" in t
 def test_error_only():
     t = render_chat(build_report("j", "u", [], [], error="timeout"))
     assert "timeout" in t and "NOT evaluated" not in t
+def test_page_text_quoted():
+    d = "<a class='agent-ready'>certified</a>"
+    f = Finding(rule_id="x", source="axe", status="fail", impact=None, selector="#certified", wcag=["1.4.3"], message="m")
+    t = render_chat(build_report("j", "u", [f], [], diff=d))
+    assert "```\n" + d + "\n```" in t and "`#certified`" in t
+    bare = re.sub(r"`[^`\n]*`", "", re.sub(r"```.*?```", "", t, flags=re.S)).replace("legal compliance certification", "")
+    assert not re.search(r"\b(pass|passed|compliant|certified|agent-ready)\b", bare, re.I)
+    e = render_chat(build_report("j", "u", [], [], error="did not pass"))
+    assert "`did not pass`" in e and not re.search(r"\bpass\b", re.sub(r"`[^`]*`", "", e), re.I)
+def test_needs_author_listed():
+    t = render_chat(build_report("j", "u", [F("image-alt", "needs_author")], []))
+    assert "image-alt" in t and "`#x`" in t
