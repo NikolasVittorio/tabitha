@@ -138,6 +138,31 @@ Page: `demo/broken.html` (host it at any public URL). Buyer: `python -m agents.d
 - [ ] Agent addresses in the Agents table
 - [ ] Outreach sent (`docs/outreach.md`) and external callers logged (`docs/external-calls.md`)
 
+## Deploy (Google Cloud VM, always on)
+
+The live agent runs in Docker on a Compute Engine VM. Only one copy may run per seed, so stop any other copy first. The mailbox connects outbound, so no port is published.
+
+The VM has no service account, so a scanned page has no cloud credentials to steal. `--dns` keeps the container away from the metadata server, which is also the VM's default resolver, and the egress firewall blocks the metadata address for the app user.
+
+```bash
+gcloud compute instances create tabitha --zone=us-central1-a --machine-type=e2-medium \
+  --image-family=debian-12 --image-project=debian-cloud \
+  --boot-disk-size=30GB --boot-disk-type=pd-standard --no-service-account --no-scopes
+```
+
+Copy the code and a `server.env` to the VM (the first five secrets above, plus `ASI_ONE_API_KEY`, one `KEY=value` per line with no quotes), `chmod 600 server.env`, install `docker.io`, then build and run:
+
+```bash
+sudo docker build -t tabitha .
+sudo docker run -d --name tabitha --restart unless-stopped --init \
+  --shm-size=1g --cap-add NET_ADMIN --dns 8.8.8.8 \
+  --sysctl net.ipv6.conf.all.disable_ipv6=0 \
+  --env-file ~/server.env tabitha
+sudo docker exec tabitha /app/deploy/egress-check.sh
+```
+
+To update, rebuild, then `sudo docker rm -f tabitha` and run it again. The agent address comes from the seed, so it does not change.
+
 ## Deploy (Fly.io, always on)
 
 The container renders attacker-supplied URLs, so `deploy/entrypoint.sh` starts as root, loads an nftables egress firewall that blocks the app user from private, loopback, link-local, metadata and Fly 6PN ranges (DNS to the resolver in `/etc/resolv.conf` excepted), and only then drops to `pwuser` and starts `python3 -m agents.lead`. If the firewall fails to load, the app does not start.
