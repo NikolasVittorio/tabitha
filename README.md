@@ -19,7 +19,7 @@ Tabitha is one uAgents Bureau with four agents. Talk to the lead; it hires the o
 
 | Agent | Role | Address |
 |---|---|---|
-| lead (Tabitha - Accessibility Agent) | Chat Protocol + Payment Protocol + typed `tabitha_check`, mailbox | `agent1q25kyhfs75g55lxeygztpuf5c6dandh5p9egx2q4aynjpyn06wsy57rs8af` |
+| lead (Tabitha - Accessibility Agent) | Chat Protocol + Payment Protocol request + typed `tabitha_check`, mailbox | `agent1q25kyhfs75g55lxeygztpuf5c6dandh5p9egx2q4aynjpyn06wsy57rs8af` |
 | scanner | axe-core 4.14.0 in Playwright Chromium | `agent1qdzt7met6znn350jat82d4xe3mvepnfzstskjfsf99lwcnjaffn65dlm0tv` |
 | walker | deterministic keyboard walk (up to 50 Tab presses) | `agent1q2mndadhy8yg65de7fda2vj2lke278z2u95rn6ccc0tafyc9laqxwuyw8sj` |
 | fixer | deterministic, rule-based patches (no LLM) | `agent1qvfk9654un9w5zdf6a60cmsj44ue3gfqj0qu4vg9a60chgedavyr67vwrv3` |
@@ -44,14 +44,13 @@ Reproduce a blocked URL: send `check http://169.254.169.254/`. The metadata addr
 Send a chat message to the lead (for example from ASI:One):
 
 - `check <url>`: free automated scan plus keyboard walk. 5 per sender per UTC day. A bare domain works too: `check example.com` and `example.com` both scan `https://example.com`. A full `http://` or `https://` URL in the message wins; emails and file names like `index.html` are ignored.
-- `fix <url>`: patch rechecked on the page source with scripts off (page scripts are not re-run) plus signed scan log, 0.5 TEST FET on Dorado testnet. Live charging is off.
+- `fix <url>`: replies with the price and how to pay: 0.15 real USDC on Base over [x402](#paying-with-x402). Nothing runs until the x402 endpoint is paid. The fix is a patch rechecked on the page source with scripts off (page scripts are not re-run) plus a signed scan log.
 - `recheck <url>`: a free scan like `check`, sent after a fix. When you have scanned the same URL before, any scan reply adds a "Since your last scan" line: issue counts before and after, how many are no longer detected and how many are new. It then lists up to 5 of the new ones under "New since your last scan:". These are automated issues (`fail` and `needs_author` findings); needs-review findings are not compared. If focus visibility was only partly checked on either scan (time limit), the reply says focus issues can show as new or no longer detected for that reason alone.
 
 Scan replies name the agents that worked on the job, with their addresses. They also show the page's accessibility tree when it can be read, in the "What an AI agent sees" section. After a `fix` it shows the tree before and after the patch, both taken from the page source with scripts off.
 
-`fix` uses the Payment Protocol (seller role). The lead sends a `RequestPayment` for 0.5 TEST FET (`fet_direct`) to its own wallet address, with the job id as `reference` and a 300 s deadline. The buyer pays on Dorado **with the tx memo set to the reference** and sends `CommitPayment` with the tx hash and that reference. The lead checks the tx on chain (successful, memo equals the reference, a bank send of at least 0.5 TEST FET to its address, hash never used before). Only then does it run the fix, and it replies `CompletePayment` after the report is delivered. A tx that is not indexed yet gets "transaction not found yet - resend CommitPayment". Any other mismatch gets a "Payment not accepted: <reason>" chat line. In both cases the reference stays open until its deadline, so fix it and resend `CommitPayment`. In-memory; a restart mid-job loses the paid job (testnet). A reference is consumed once, by a verified payment, and only the sender who asked can use it. `CancelPayment` is sent only when a reference closes unpaid: at the deadline ("payment window expired", which also reaches chat-only callers) or after `RejectPayment`.
+`fix` also sends a Payment Protocol `RequestPayment` (seller role) for 0.15 USDC with `payment_method="x402"`, the receiving address and the endpoint in `metadata.x402_url`. Payment itself happens over x402, so a `CommitPayment` runs nothing and gets the same instructions back.
 
-Set `PAYMENT_ENABLED=0` to switch payment off for the event: `fix` then runs free, counts against the 5 free scans per day, and its chat reply is labelled "payment disabled for the event". The default is `1`.
 
 Input is a single public http(s) URL (bare domains in chat only). No crawling, no pasted HTML. Each page gets 30 s and 2 MB at most.
 
@@ -76,19 +75,19 @@ async def got(ctx: Context, sender: str, r: Report):
     ctx.logger.info(f"{r.automated_status} {r.violation_count} error={r.error}")
 ```
 
-Typed and chat calls share the same 5 free scans per sender per UTC day and the same 2 job slots. A diff longer than 50,000 characters is cut, and `note` says so. Errors come back in `Report.error`:
+Typed and chat calls share the same 5 free scans per sender per UTC day and the same 2 job slots. Errors come back in `Report.error`:
 
 - `bad_request`: the url is not an `http://` or `https://` string of at most 2048 characters.
 - `quota_exceeded`: the 5 free scans for today are used up.
 - `busy`: both job slots are taken. Try again in a minute; the attempt is not counted against the quota.
-- `payment_required`: `mode="fix"` while payment is on. Send `fix <url>` over the Chat Protocol to pay 0.5 TEST FET.
+- `payment_required`: `mode="fix"`. Fixes are sold only over x402, and `note` says how to pay.
 - Scan errors such as `timeout` or `too_large` come through unchanged.
 
 When `error` is set, nothing was scanned; ignore the other fields. `automated_status` is then `not_scanned`.
 
 ## Paying with x402
 
-Other agents can buy a fix over HTTP with [x402](https://docs.x402.org), paying in USDC with no account or chat. This runs only when `X402_PAY_TO` is set. It uses Base Sepolia test USDC unless `X402_LIVE=1` is also set, which switches to real USDC on Base and needs `X402_PRICE` (like `$1.00`), `CDP_API_KEY_ID` and `CDP_API_KEY_SECRET`. If any of those is missing, the endpoint stays off and the rest of the agent keeps running.
+Other agents can buy a fix over HTTP with [x402](https://docs.x402.org), paying in USDC with no account or chat. The live endpoint is `https://api.nik0.io/fix` and charges 0.15 real USDC on Base. It was tested end to end with test USDC on Base Sepolia ([transaction](https://sepolia.basescan.org/tx/0x4e4502ac7d4f0a1afb7a54e837d700914c3105eedf943749c61ec344e3449be6)). On your own deployment, this runs only when `X402_PAY_TO` is set. It uses Base Sepolia test USDC unless `X402_LIVE=1` is also set, which switches to real USDC on Base and needs `X402_PRICE` (like `$1.00`), `CDP_API_KEY_ID` and `CDP_API_KEY_SECRET`. If any of those is missing, the endpoint stays off and the rest of the agent keeps running.
 
 ```
 POST /fix  {"url": "https://example.com"}
@@ -129,19 +128,19 @@ verify_receipt(Receipt(payload_json=payload, signature_hex=sig, public_key_hex=P
 
 Secrets come from environment variables only (names below; never commit values):
 
-`LEAD_SEED`, `SCANNER_SEED`, `WALKER_SEED`, `FIXER_SEED`, `RECEIPT_KEY_HEX`, `PAYMENT_ENABLED` (optional, `0` turns payment off), `ASI_ONE_API_KEY` (optional, without it chat questions get a fixed reply), `X402_PAY_TO` (optional, the address that receives x402 USDC; without it the HTTP endpoint stays off), `X402_LIVE`, `X402_PRICE`, `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET` (optional, real USDC), `LEAD_ADDRESS`, `BUYER_SEED`, `BUYER_WALLET_MNEMONIC`
+`LEAD_SEED`, `SCANNER_SEED`, `WALKER_SEED`, `FIXER_SEED`, `RECEIPT_KEY_HEX`, `ASI_ONE_API_KEY` (optional, without it chat questions get a fixed reply), `X402_PAY_TO` (optional, the address that receives x402 USDC; without it the HTTP endpoint stays off and nobody can buy a fix), `X402_LIVE`, `X402_PRICE`, `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET` (optional, real USDC)
 
-The deployed container needs the first five. `PAYMENT_ENABLED` (default `1`) and `ASI_ONE_API_KEY` are optional. `LEAD_ADDRESS` and `BUYER_*` are for the local demo buyer only.
+The deployed container needs the first five, plus the x402 settings to sell fixes. `ASI_ONE_API_KEY` is optional.
 
 ## Demo
 
-Page: `demo/broken.html` (host it at any public URL). Buyer: `python -m agents.demo_buyer <url>` pays 0.5 TEST FET on Dorado with the tx memo set to the payment reference, then prints each reply. Scripts: `docs/demo-script.md`.
+Page: `demo/broken.html` (host it at any public URL). Scripts: `docs/demo-script.md`.
 
 1. Broken theme page, with pre-recorded screen-reader audio.
 2. Keyboard walk result: N focus stops, keyboard trap found.
 3. Patch with per-element fix outcomes, and "N criteria need human review".
 4. Audio after the fix.
-5. Receipt and the TEST FET payment reference.
+5. Receipt and the x402 payment.
 
 ## Submission evidence
 

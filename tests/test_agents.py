@@ -4,9 +4,12 @@ import logging
 import pytest
 from uagents import Model
 from uagents_core.contrib.protocols.chat import ChatMessage, TextContent
+from uagents_core.contrib.protocols.payment import CommitPayment, Funds, RequestPayment
 
 import agents.subagents as subagents
 from agents.lead import BUSY, make_lead
+from gate.chat import PAY_FIX, USAGE
+from gate.talk import FALLBACK
 from gate.models import A11yCheckRequest, FixRequest, Report, ScanRequest, ScanResult, WalkRequest, WalkResult
 
 LEAD = "agent1lead"
@@ -115,14 +118,33 @@ async def test_typed_bad_url_rejected():
     assert subs_sent(ctx) == []
 
 
-async def test_typed_fix_requires_payment(monkeypatch):
-    monkeypatch.delenv("PAYMENT_ENABLED", raising=False)
+async def test_typed_fix_never_runs_even_with_old_payment_switch(monkeypatch):
+    monkeypatch.setenv("PAYMENT_ENABLED", "0")
     ctx = Ctx()
     await typed(make_lead("seed", SUBS))(ctx, "me", req(mode="fix"))
     r = ctx.sent[-1][1]
-    assert r.error == "payment_required"
-    assert r.note == "send `fix <url>` over the Chat Protocol to pay 0.5 TEST FET"
-    assert subs_sent(ctx) == []
+    assert r.error == "payment_required" and r.note == PAY_FIX and subs_sent(ctx) == []
+
+
+async def test_chat_fix_asks_for_usdc_over_x402_and_runs_nothing(monkeypatch):
+    monkeypatch.setenv("PAYMENT_ENABLED", "0")
+    monkeypatch.setenv("X402_PAY_TO", "0xabc")
+    lead, ctx = make_lead("seed", SUBS), Ctx()
+    on_chat = lead._signed_message_handlers[Model.build_schema_digest(ChatMessage)]
+    await on_chat(ctx, "me", ChatMessage(content=[TextContent(text="fix https://e.com")]))
+    ask = next(m for _, m in ctx.sent if isinstance(m, RequestPayment))
+    f = ask.accepted_funds[0]
+    assert (f.currency, f.amount, f.payment_method, ask.recipient) == ("USDC", "0.15", "x402", "0xabc")
+    assert ctx.sent[-1][1].text() == PAY_FIX and subs_sent(ctx) == []
+    assert "TEST" not in PAY_FIX + USAGE + FALLBACK and "FET" not in PAY_FIX + USAGE + FALLBACK
+
+
+async def test_commit_payment_runs_nothing():
+    lead, ctx = make_lead("seed", SUBS), Ctx()
+    on_commit = lead._signed_message_handlers[Model.build_schema_digest(CommitPayment)]
+    await on_commit(ctx, "me", CommitPayment(funds=Funds(currency="FET", amount="0.5", payment_method="fet_direct"),
+                                             recipient="x", transaction_id="t", reference="r"))
+    assert subs_sent(ctx) == [] and PAY_FIX in ctx.sent[-1][1].text()
 
 
 async def test_typed_shares_chat_quota():
@@ -215,20 +237,6 @@ async def test_scanner_returns_findings_when_tree_stalls(monkeypatch):
         ctx, LEAD, ScanRequest(job_id="j", url="https://e.com", html="<p>"))
     r = ctx.sent[-1][1]
     assert r.error is None and r.findings == [f] and r.tree == "" and r.html == "<p>"
-
-
-async def test_typed_diff_capped(monkeypatch):
-    import agents.lead as lead_mod
-    from gate.report import build_report
-    monkeypatch.setenv("PAYMENT_ENABLED", "0")
-
-    async def fake_gate(job_id, url, scan, walk, fix):
-        return build_report(job_id, url, [], [], diff="x" * 60_000)
-    monkeypatch.setattr(lead_mod, "run_gate", fake_gate)
-    ctx = Ctx()
-    await typed(make_lead("seed", SUBS))(ctx, "me", req(mode="fix"))
-    r = ctx.sent[-1][1]
-    assert len(r.diff) == 50_000 and "diff truncated at 50000 characters" in r.note
 
 
 async def test_check_protocol_in_manifest():  # async: Agent() needs a running loop

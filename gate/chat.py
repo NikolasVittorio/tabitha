@@ -4,9 +4,14 @@ from datetime import date
 
 from gate.quota import Quota
 
+FIX_URL = "https://api.nik0.io/fix"
+FIX_USDC = "0.15"  # ponytail: must match X402_PRICE on the server; it is only text here, the endpoint sets the charge
+PAY_FIX = (f"Fixes cost {FIX_USDC} USDC on Base, paid over x402 by an agent or client that supports it: "
+           f"POST {FIX_URL} with JSON {{\"url\": \"<page>\"}}. "
+           "You are charged only if at least one fix is confirmed. `check <url>` stays free.")
 USAGE = ("Send `check <url>` for a free automated scan, or `fix <url>` for a patch "
          "rechecked on the page source with scripts off (page scripts are not re-run) "
-         "+ signed scan log (0.5 TEST FET). "
+         f"+ signed scan log ({FIX_USDC} USDC over x402). "
          "Send `recheck <url>` after a fix to see what changed. "
          "A bare domain like `example.com` works too.")
 QUOTA_REPLY = "Free scan limit reached for today (5 per UTC day). " + USAGE
@@ -48,7 +53,7 @@ def parse_chat(text: str, sender: str, quota: Quota, today: date) -> Scan | Fix 
     # ponytail: a paid fix runs only when "fix" is the only command word, so "I pushed a fix, recheck x.com" scans.
     # Ceiling: "did the fix work? x.com" is also a fix. Hosts (fix.com) are cut out first so they are not commands.
     if {c.lower() for c in CMD.findall(DOMAIN.sub(" ", URL.sub(" ", text)))} == {"fix"}:
-        return Fix(url)  # paid; with PAYMENT_ENABLED=0 the lead charges the scan quota itself
+        return Fix(url)  # paid: the lead replies with the x402 terms
     if not quota.allow(sender, today):
         return Reply(QUOTA_REPLY)
     return Scan(url)

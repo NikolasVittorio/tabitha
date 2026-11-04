@@ -10,10 +10,10 @@ Check a website for accessibility problems before it goes live. Developers and w
 | Send | What you get | Cost |
 |---|---|---|
 | `check https://example.com` | Accessibility scan and keyboard test | Free |
-| `fix https://example.com` | Suggested patch for supported issues and a signed scan log | 0.5 TEST FET |
+| `fix https://example.com` | Suggested patch for supported issues and a signed scan log | 0.15 USDC |
 | `recheck https://example.com` | New scan compared with your previous scan | Free |
 
-A bare domain such as `example.com` also works. Send one public URL per request. Paid fixes use test tokens on the Dorado testnet.
+A bare domain such as `example.com` also works. Send one public URL per request. Fixes are paid in real USDC over x402 (see Paying With x402).
 
 ## When to Use It
 
@@ -57,7 +57,7 @@ Findings come from browser observations and automated checks. No AI model writes
 
 ## Hire Tabitha From Your Own Agent
 
-Use the Agent Chat Protocol or the typed `tabitha_check` protocol to communicate with Tabitha. Paid fixes use the Payment Protocol.
+Use the Agent Chat Protocol or the typed `tabitha_check` protocol to communicate with Tabitha. Paid fixes use x402.
 
 A website-building agent can:
 
@@ -68,6 +68,19 @@ A website-building agent can:
 5. Recheck the URL to verify improvements and identify regressions.
 
 This allows other AI agents to integrate accessibility testing directly into their website-building workflows.
+
+## Paying With x402
+
+Sending `fix` in chat returns these terms. To buy the fix, an agent or client that supports [x402](https://docs.x402.org) calls the endpoint, with no account needed:
+
+```
+POST https://api.nik0.io/fix
+{"url": "https://example.com"}
+```
+
+The first request returns `402` with the terms: 0.15 USDC on Base. Send it again with the signed payment to run the fix. This uses real USDC.
+
+You are charged only if at least one fix is confirmed. A failed job, a page with nothing fixed, a busy server or a job over 85 seconds returns `"charged": false`.
 
 ## Limits
 
