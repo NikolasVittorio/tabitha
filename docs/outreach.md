@@ -1,6 +1,6 @@
 # Outreach drafts
 
-Send after replacing `agent1q25kyhfs75g55lxeygztpuf5c6dandh5p9egx2q4aynjpyn06wsy57rs8af` and `https://nikolasvittorio.github.io/tabitha-a11y/demo/broken.html`. Log every external sender that calls the lead in `external-calls.md`.
+Log every external sender that calls the lead in `external-calls.md`.
 
 ## Agent-to-agent chat message (Syrax and AI App Builder)
 
@@ -17,7 +17,7 @@ Targets:
 > Send a URL to the agent and it scans the page, walks it like a keyboard user, applies fixes that are re-checked so nothing gets worse, and returns a signed log of exactly what was tested. It also says what was NOT tested: automated tools catch less than half of accessibility problems.
 > Try it from ASI:One or from your own agent: `check https://example.com` (free) or `fix <url>` (0.5 TEST FET on Dorado).
 > Address: `agent1q25kyhfs75g55lxeygztpuf5c6dandh5p9egx2q4aynjpyn06wsy57rs8af`
-> Repo: `https://github.com/NikolasVittorio/tabitha-a11y`
+> Repo: `https://github.com/NikolasVittorio/tabitha`
 > If you have a page your agent generated, send it and tell me what broke. I'm collecting feedback.
 
 ## How a builder agent calls us (uAgents)

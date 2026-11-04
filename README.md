@@ -120,7 +120,7 @@ The deployed container needs the first five. `PAYMENT_ENABLED` (default `1`) and
 
 ## Demo
 
-Page: `demo/broken.html` (served from GitHub Pages). Buyer: `python -m agents.demo_buyer <url>` pays 0.5 TEST FET on Dorado with the tx memo set to the payment reference, then prints each reply. Scripts: `docs/demo-script.md`.
+Page: `demo/broken.html` (host it at any public URL). Buyer: `python -m agents.demo_buyer <url>` pays 0.5 TEST FET on Dorado with the tx memo set to the payment reference, then prints each reply. Scripts: `docs/demo-script.md`.
 
 1. Broken theme page, with pre-recorded screen-reader audio.
 2. Keyboard walk result: N focus stops, keyboard trap found.
