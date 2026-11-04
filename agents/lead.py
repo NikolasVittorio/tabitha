@@ -28,6 +28,7 @@ from gate.quota import Quota
 from gate.receipt import sign_receipt
 from gate.report import build_report, render_chat
 from gate.talk import FALLBACK, answer
+from gate.x402_api import make_app, serve
 
 NAME = "Tabitha - Accessibility Agent"
 DESCRIPTION = ("Check websites for accessibility problems before launch: WCAG 2.2 AA scan, keyboard test, "
@@ -95,6 +96,17 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=dorado_get_tx) -> Age
                 r = r.copy(update={"note": "; ".join(x for x in (r.note, NO_RECEIPT) if x)})
         ctx.logger.info(f"job {job_id} error={r.error} rules={sorted({f.rule_id for f in r.findings})}")
         return r
+
+    if x402_to := os.environ.get("X402_PAY_TO"):
+        @agent.on_event("startup")
+        async def start_x402(ctx: Context):
+            async def run_fix(url: str) -> Report | None:
+                if sem.locked():  # no await before `async with`, so no race; busy is not charged
+                    return None
+                async with sem:
+                    return await run_job(ctx, str(uuid4()), url, True)
+
+            agent._x402_task = asyncio.create_task(serve(make_app(run_fix, x402_to)))  # keep a reference
 
     def with_delta(sender: str, r: Report) -> Report:
         d = history.compare(sender, r.url, r, datetime.now(timezone.utc))

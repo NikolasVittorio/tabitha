@@ -86,6 +86,21 @@ Typed and chat calls share the same 5 free scans per sender per UTC day and the 
 
 When `error` is set, nothing was scanned; ignore the other fields. `automated_status` is then `not_scanned`.
 
+## Paying with x402 (test mode)
+
+Other agents can buy a fix over HTTP with [x402](https://docs.x402.org), paying in USDC with no account or chat. This runs only when `X402_PAY_TO` is set, and it uses Base Sepolia test USDC only.
+
+```
+POST /fix  {"url": "https://example.com"}
+-> 402 with the price and payment address in the PAYMENT-REQUIRED header
+POST /fix  with the signed payment in the PAYMENT-SIGNATURE header
+-> 200 {"charged": true, "report": {...}}
+```
+
+The payment settles only after the job, and only if at least one fix is confirmed. A failed job, a page with nothing fixed, or a busy server returns an error with `"charged": false`. If settlement fails, the report is withheld. The `report` matches the typed `Report` model and includes the signed scan log.
+
+Try it with `python -m agents.x402_buyer <tabitha-url> <page-url>`, with `X402_BUYER_KEY` set to a throwaway key holding [test USDC](https://faucet.circle.com). The buyer needs no ETH.
+
 ## Limits
 
 Every scan report ends with this disclaimer, with the numbers filled in:
@@ -114,7 +129,7 @@ verify_receipt(Receipt(payload_json=payload, signature_hex=sig, public_key_hex=P
 
 Secrets come from environment variables only (names below; never commit values):
 
-`LEAD_SEED`, `SCANNER_SEED`, `WALKER_SEED`, `FIXER_SEED`, `RECEIPT_KEY_HEX`, `PAYMENT_ENABLED` (optional, `0` turns payment off), `ASI_ONE_API_KEY` (optional, without it chat questions get a fixed reply), `LEAD_ADDRESS`, `BUYER_SEED`, `BUYER_WALLET_MNEMONIC`
+`LEAD_SEED`, `SCANNER_SEED`, `WALKER_SEED`, `FIXER_SEED`, `RECEIPT_KEY_HEX`, `PAYMENT_ENABLED` (optional, `0` turns payment off), `ASI_ONE_API_KEY` (optional, without it chat questions get a fixed reply), `X402_PAY_TO` (optional, the address that receives x402 test USDC; without it the HTTP endpoint stays off), `LEAD_ADDRESS`, `BUYER_SEED`, `BUYER_WALLET_MNEMONIC`
 
 The deployed container needs the first five. `PAYMENT_ENABLED` (default `1`) and `ASI_ONE_API_KEY` are optional. `LEAD_ADDRESS` and `BUYER_*` are for the local demo buyer only.
 
@@ -160,6 +175,8 @@ sudo docker run -d --name tabitha --restart unless-stopped --init \
   --env-file ~/server.env tabitha
 sudo docker exec tabitha /app/deploy/egress-check.sh
 ```
+
+To turn on x402, add `X402_PAY_TO` to `server.env`, add `-p 127.0.0.1:8402:8402` to `docker run`, and put an HTTPS tunnel or proxy in front of that port.
 
 To update, rebuild, then `sudo docker rm -f tabitha` and run it again. The agent address comes from the seed, so it does not change.
 
