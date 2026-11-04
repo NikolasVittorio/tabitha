@@ -3,6 +3,7 @@ import hashlib
 import os
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from uuid import uuid4
 
 from uagents import Agent, Bureau, Context, Protocol
@@ -27,6 +28,10 @@ from gate.quota import Quota
 from gate.receipt import sign_receipt
 from gate.report import build_report, render_chat
 
+NAME = "A11y Gate Accessibility Check"
+DESCRIPTION = ("Check a website for accessibility problems before it goes live: WCAG 2.2 AA scan, keyboard test "
+               "and screen reader issues, with re-checked code fixes for AI agents and developers.")
+PROFILE = Path(__file__).with_name("profile.md")  # published to Agentverse when the mailbox connects
 BUSY = "Busy — try again in a minute."
 NO_RECEIPT = "signed scan log unavailable (no signing key configured)"
 WINDOW = 300  # seconds a payment reference stays valid
@@ -51,7 +56,8 @@ def receipt_key() -> str | None:
 def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=dorado_get_tx) -> Agent:
     """sub_addrs: {"scan": addr, "walk": addr, "fix": addr}. get_tx: blocking tx lookup (tests inject a fake)."""
     # concurrent: the chat handler awaits subagent replies that arrive on this same agent
-    agent = Agent(name="a11y_gate", seed=seed, mailbox=True, handle_messages_concurrently=True)
+    agent = Agent(name=NAME, seed=seed, mailbox=True, handle_messages_concurrently=True,
+                  readme_path=str(PROFILE), description=DESCRIPTION)
     pending, quota, history = Pending(), Quota(), History()
     receipt_sk = receipt_key()
     sem = asyncio.Semaphore(2)  # at most 2 jobs in flight; the rest get BUSY, not a queue

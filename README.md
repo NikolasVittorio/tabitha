@@ -19,7 +19,7 @@ A11y Gate is one uAgents Bureau with four agents. Talk to the lead; it hires the
 
 | Agent | Role | Address |
 |---|---|---|
-| lead (`a11y_gate`) | Chat Protocol + Payment Protocol + typed `a11y_gate_check`, mailbox | `agent1q25kyhfs75g55lxeygztpuf5c6dandh5p9egx2q4aynjpyn06wsy57rs8af` |
+| lead (A11y Gate Accessibility Check) | Chat Protocol + Payment Protocol + typed `a11y_gate_check`, mailbox | `agent1q25kyhfs75g55lxeygztpuf5c6dandh5p9egx2q4aynjpyn06wsy57rs8af` |
 | scanner | axe-core 4.14.0 in Playwright Chromium | `agent1qdzt7met6znn350jat82d4xe3mvepnfzstskjfsf99lwcnjaffn65dlm0tv` |
 | walker | deterministic keyboard walk (up to 50 Tab presses) | `agent1q2mndadhy8yg65de7fda2vj2lke278z2u95rn6ccc0tafyc9laqxwuyw8sj` |
 | fixer | deterministic, rule-based patches (no LLM) | `agent1qvfk9654un9w5zdf6a60cmsj44ue3gfqj0qu4vg9a60chgedavyr67vwrv3` |

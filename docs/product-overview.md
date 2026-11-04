@@ -91,7 +91,7 @@ One Python process running a uAgents **Bureau** with **4 agents**. They are alwa
 
 | Agent | Job |
 |---|---|
-| **lead** (`a11y_gate`) | The only agent callers talk to. Handles the mailbox, the Chat Protocol, the Payment Protocol (seller), the typed `a11y_gate_check` protocol, quota, admission (2 jobs at a time), recheck history and receipt signing |
+| **lead** (A11y Gate Accessibility Check) | The only agent callers talk to. Handles the mailbox, the Chat Protocol, the Payment Protocol (seller), the typed `a11y_gate_check` protocol, quota, admission (2 jobs at a time), recheck history and receipt signing |
 | **scanner** | Runs axe-core in an isolated CDP world (page scripts can't tamper with it) and takes the ARIA snapshot |
 | **walker** | The deterministic keyboard walk |
 | **fixer** | The rule-based patcher, with the allowlist enforced by a recursive tree comparison |

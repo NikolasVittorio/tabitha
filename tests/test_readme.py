@@ -17,3 +17,13 @@ def test_readme_quotes_disclaimer_and_badges():
     assert "https://img.shields.io/badge/innovationlab-3D8BD3" in text
     assert "https://img.shields.io/badge/hackathon-5F43F1" in text
     assert text.startswith("# ") and "AI agents now build websites. Ours makes sure people can actually use them." in text.splitlines()[0]
+
+
+def test_agentverse_profile_is_tagged_within_limits_and_clean():
+    from agents.lead import DESCRIPTION, NAME, PROFILE
+    raw = PROFILE.read_bytes()
+    assert raw.isascii()  # uagents reads it with the platform's default encoding
+    text = raw.decode().lower().replace("legal compliance certification", "")
+    assert not [w for w in BANNED if w in text + DESCRIPTION.lower()]
+    assert "![tag:innovationlab]" in text and "![tag:hackathon]" in text
+    assert len(NAME) <= 30 and len(DESCRIPTION) <= 300
