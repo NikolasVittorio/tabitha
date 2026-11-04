@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import json
 
@@ -124,3 +125,21 @@ def test_real_money_only_when_asked_for_and_fully_configured():
                 {**KEYS, "X402_LIVE": "1", "X402_PRICE": "2.50"}, {**KEYS, "X402_LIVE": "1", "X402_PRICE": "$0.00"}):
         with pytest.raises(ValueError):
             settings(bad)
+
+
+async def test_job_over_the_time_limit_is_cancelled_and_not_charged(monkeypatch):
+    monkeypatch.setattr("gate.x402_api.JOB_LIMIT_S", 0.01)
+    cancelled = []
+
+    async def slow(url):
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            cancelled.append(url)
+            raise
+
+    f = Facilitator()
+    async with paying(make_app(slow, PAY_TO, f)) as c:
+        r = await c.post("/fix", json={"url": PAGE})
+    assert (r.status_code, r.json()["error"], r.json()["charged"]) == (504, "timeout", False)
+    assert cancelled == [PAGE] and not f.settled

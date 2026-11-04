@@ -1,6 +1,7 @@
 """Paid fixes for other agents over x402. The SDK middleware verifies the signed payment, runs the
 handler, and settles only on a status below 400, holding the response until settlement succeeds.
 So a job that fails or fixes nothing is never charged, and a payment that fails gets no report."""
+import asyncio
 import contextlib
 import os
 import re
@@ -23,6 +24,7 @@ LIVE_NETWORK = "eip155:8453"  # Base, real USDC
 FACILITATOR_URL = "https://x402.org/facilitator"
 PRICE = "$1.00"
 PAY_WINDOW_S = 900  # a fix can take minutes and settles after it; the signed payment must outlive it
+JOB_LIMIT_S = 85  # Cloudflare cuts a proxied request near 100 s; settling after that would charge for nothing
 PORT = 8402
 
 RunFix = Callable[[str], Awaitable[Report | None]]  # None = no free job slot
@@ -67,7 +69,10 @@ def make_app(run_fix: RunFix, pay_to: str, facilitator=None) -> FastAPI:
     async def fix(body: FixBody):
         if not body.url.startswith(("http://", "https://")):
             return JSONResponse({"error": "bad_request", "charged": False}, status_code=400)
-        r = await run_fix(body.url)
+        try:
+            r = await asyncio.wait_for(run_fix(body.url), JOB_LIMIT_S)
+        except TimeoutError:
+            return JSONResponse({"error": "timeout", "charged": False}, status_code=504)
         if r is None:
             return JSONResponse({"error": "busy", "charged": False}, status_code=503)
         if r.error:

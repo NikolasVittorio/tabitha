@@ -97,7 +97,7 @@ POST /fix  with the signed payment in the PAYMENT-SIGNATURE header
 -> 200 {"charged": true, "report": {...}}
 ```
 
-The payment settles only after the job, and only if at least one fix is confirmed. A failed job, a page with nothing fixed, or a busy server returns an error with `"charged": false`. If settlement fails, the report is withheld. The `report` matches the typed `Report` model and includes the signed scan log.
+The payment settles only after the job, and only if at least one fix is confirmed. A failed job, a job over 85 seconds, a page with nothing fixed, or a busy server returns an error with `"charged": false`. If settlement fails, the report is withheld. The `report` matches the typed `Report` model and includes the signed scan log.
 
 Try it with `python -m agents.x402_buyer <tabitha-url> <page-url>`, with `X402_BUYER_KEY` set to a throwaway key holding [test USDC](https://faucet.circle.com). The buyer needs no ETH.
 
