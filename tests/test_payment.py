@@ -246,3 +246,20 @@ async def test_reject_twice_cancels_each_open_job_once():
     for _ in range(2):
         await ctx.on_reject(ctx, "alice", RejectPayment(reason="no"))
     assert cancels(ctx, "alice") == 2 and ends(ctx, "alice") == 2  # one per open job, not per reject
+
+
+async def test_message_with_no_url_goes_to_the_model_up_to_the_daily_cap(monkeypatch):
+    seen = []
+    async def fake(text, facts):
+        seen.append(text)
+        return 'model reply'
+    monkeypatch.setattr(lead_mod, 'answer', fake)
+    _, on_chat, _, ctx = setup()
+    send = lambda text: on_chat(ctx, 'alice', ChatMessage(content=[TextContent(text=text)]))
+    last = lambda: [m for _, m in ctx.sent if isinstance(m, ChatMessage)][-1].text()
+    await send('what can you do')
+    assert seen == ['what can you do'] and last() == 'model reply'
+    for _ in range(lead_mod.TALKS_PER_SENDER - 1):
+        await send('again')
+    await send('one too many')
+    assert 'one too many' not in seen and last() == lead_mod.FALLBACK

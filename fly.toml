@@ -1,5 +1,5 @@
 # Always-on worker. The mailbox connects outbound; nothing is exposed publicly.
-app = "a11y-gate-<CHANGE_ME>"
+app = "tabitha-<CHANGE_ME>"
 primary_region = "syd"
 
 [build]

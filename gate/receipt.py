@@ -18,7 +18,7 @@ def sign_receipt(r: Report, key_hex: str, now: datetime) -> Receipt:
         "url": r.url,
         "input_sha256": r.input_sha256,
         "timestamp": now.astimezone(timezone.utc).isoformat(),
-        "engine": "axe-core 4.14.0 + a11y-gate walker v1",
+        "engine": "axe-core 4.14.0 + tabitha walker v1",
         "automated_status": r.automated_status,
         "violation_count": r.violation_count,
         "fixes": sorted(({"rule_id": f.rule_id, "selector": f.selector, "outcome": f.outcome} for f in r.fixes),

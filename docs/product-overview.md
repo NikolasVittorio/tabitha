@@ -1,4 +1,4 @@
-# A11y Gate: product overview
+# Tabitha: product overview
 
 This is a briefing for anyone (person or agent session) thinking about new features. It covers what the product does today, why it's built the way it is, and the rules any new feature has to respect.
 
@@ -91,7 +91,7 @@ One Python process running a uAgents **Bureau** with **4 agents**. They are alwa
 
 | Agent | Job |
 |---|---|
-| **lead** (A11y Gate Accessibility Check) | The only agent callers talk to. Handles the mailbox, the Chat Protocol, the Payment Protocol (seller), the typed `a11y_gate_check` protocol, quota, admission (2 jobs at a time), recheck history and receipt signing |
+| **lead** (Tabitha - Accessibility Agent) | The only agent callers talk to. Handles the mailbox, the Chat Protocol, the Payment Protocol (seller), the typed `tabitha_check` protocol, quota, admission (2 jobs at a time), recheck history and receipt signing |
 | **scanner** | Runs axe-core in an isolated CDP world (page scripts can't tamper with it) and takes the ARIA snapshot |
 | **walker** | The deterministic keyboard walk |
 | **fixer** | The rule-based patcher, with the allowlist enforced by a recursive tree comparison |
@@ -126,7 +126,7 @@ Nothing else. In production an nftables egress firewall blocks private, metadata
 
 These came from the design council and the review rounds, and they're the core of the pitch.
 
-1. **No AI model in the results.** Everything reported is measured, which is why the signed log is trustworthy and why this isn't "a thin GPT wrapper". A model's opinion could only ever appear as a separately labelled *suggestion*.
+1. **No AI model in the results.** Everything reported is measured, which is why the signed log is trustworthy and why this isn't "a thin GPT wrapper". A model's opinion could only ever appear as a separately labelled *suggestion*. The ASI:One model only answers chat messages that have no URL: it can't start a job or see a report.
 2. **Never overclaim.**
    - Banned in all output and copy: "pass", "compliant", "certified", "agent-ready".
    - `automated_status` must be one of `violations_found`, `no_automated_violations_detected` or `not_scanned`.
@@ -138,7 +138,7 @@ These came from the design council and the review rounds, and they're the core o
    - 30 s per page and 2 MB of HTML
    - a new browser context per job, with downloads blocked
    - SSRF checks after DNS resolution
-5. **Nothing is stored** except in-memory hashes for recheck. Logs hold only rule ids, hashes and job ids.
+5. **Nothing is stored** except in-memory hashes for recheck. Chat messages with no URL go to the ASI:One API so a model can answer them. Logs hold only rule ids, hashes and job ids.
 6. **Fixes stay inside the allowlist**, and each one is re-checked and kept only if nothing gets worse.
 7. **Payments are TEST FET only.** The tx memo must equal the job id, and a transaction can't be reused.
 

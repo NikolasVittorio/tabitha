@@ -20,18 +20,21 @@ from uagents_core.identity import Identity
 from agents.rpc import Pending
 from agents.subagents import make_fixer, make_scanner, make_walker
 from gate.history import History
-from gate.chat import QUOTA_REPLY, Fix, Reply, parse_chat
+from gate.chat import QUOTA_REPLY, USAGE, Fix, Reply, parse_chat
 from gate.models import A11yCheckRequest, FixResult, Report, ScanResult, WalkResult
 from gate.payment import PRICE_AFET, dorado_get_tx, verify_fet_payment
 from gate.pipeline import run_gate
 from gate.quota import Quota
 from gate.receipt import sign_receipt
 from gate.report import build_report, render_chat
+from gate.talk import FALLBACK, answer
 
-NAME = "A11y Gate Accessibility Check"
-DESCRIPTION = ("Check a website for accessibility problems before it goes live: WCAG 2.2 AA scan, keyboard test "
-               "and screen reader issues, with re-checked code fixes for AI agents and developers.")
+NAME = "Tabitha - Accessibility Agent"
+DESCRIPTION = ("Check websites for accessibility problems before launch: WCAG 2.2 AA scan, keyboard test, "
+               "screen reader issues, re-checked code fixes for humans and AI agents.")
 PROFILE = Path(__file__).with_name("profile.md")  # published to Agentverse when the mailbox connects
+TALKS_PER_SENDER = 20  # a day; the model costs money and sender addresses are free
+TALKS_TOTAL = 500
 BUSY = "Busy — try again in a minute."
 NO_RECEIPT = "signed scan log unavailable (no signing key configured)"
 WINDOW = 300  # seconds a payment reference stays valid
@@ -63,7 +66,7 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=dorado_get_tx) -> Age
     sem = asyncio.Semaphore(2)  # at most 2 jobs in flight; the rest get BUSY, not a queue
     chat = Protocol(spec=chat_protocol_spec)
     pay = Protocol(spec=payment_protocol_spec, role="seller")
-    check_proto = Protocol(name="a11y_gate_check", version="0.1.0")
+    check_proto = Protocol(name="tabitha_check", version="0.1.0")
     paid_on = os.environ.get("PAYMENT_ENABLED", "1") != "0"
     pay_to = str(agent.wallet.address())  # Dorado address the buyer pays
     # ponytail: in memory, lost on restart (like the quota); a restart drops unpaid jobs and the replay set
@@ -125,6 +128,8 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=dorado_get_tx) -> Age
         await asyncio.sleep(WINDOW)
         await close(ctx, job_id, "payment window expired")  # chat-only callers still hear back
 
+    talks, all_talks = Quota(TALKS_PER_SENDER), Quota(TALKS_TOTAL)
+
     @chat.on_message(ChatMessage)
     async def on_chat(ctx: Context, sender: str, msg: ChatMessage):
         await ctx.send(sender, ChatAcknowledgement(acknowledged_msg_id=msg.msg_id))
@@ -145,7 +150,10 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=dorado_get_tx) -> Age
                                    f"with tx memo {job_id}, within {WINDOW} s.", end=False)
             return
         if isinstance(action, Reply):
-            return await say(ctx, sender, action.text)
+            if action.text != USAGE:
+                return await say(ctx, sender, action.text)
+            ok = talks.allow(sender, today) and all_talks.allow("all", today)
+            return await say(ctx, sender, await answer(msg.text(), PROFILE.read_text()) if ok else FALLBACK)
         # payment off: a fix rides the free scan quota; a scan was already charged by parse_chat
         r = await admit(ctx, sender, today, action.url, is_fix, charge=is_fix)
         if isinstance(r, str):

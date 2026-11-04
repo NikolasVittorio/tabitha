@@ -233,4 +233,4 @@ async def test_typed_diff_capped(monkeypatch):
 
 async def test_check_protocol_in_manifest():  # async: Agent() needs a running loop
     lead = make_lead("seed", SUBS)
-    assert "a11y_gate_check" in [p.name for p in lead.protocols.values()]
+    assert "tabitha_check" in [p.name for p in lead.protocols.values()]
