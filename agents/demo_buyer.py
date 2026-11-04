@@ -126,6 +126,7 @@ def make_buyer(seed: str, lead: str, url: str) -> Agent:
 
 
 def main() -> None:
+    sys.stdout.reconfigure(encoding="utf-8")  # reports contain arrows; a Windows console would crash on them
     if len(sys.argv) != 2:
         sys.exit("usage: python -m agents.demo_buyer <url>")
     make_buyer(os.environ["BUYER_SEED"], os.environ["LEAD_ADDRESS"], sys.argv[1]).run()
