@@ -1,7 +1,7 @@
 # AI agents now build websites. Ours makes sure people can actually use them.
 
-![innovationlab](https://img.shields.io/badge/innovationlab-3D8BD3)
-![hackathon](https://img.shields.io/badge/hackathon-5F43F1)
+![tag:innovationlab](https://img.shields.io/badge/innovationlab-3D8BD3)
+![tag:hackathon](https://img.shields.io/badge/hackathon-5F43F1)
 
 AI agents are shipping websites at machine speed, and most of those pages break for people who use screen readers or keyboards. Our agent is a pre-ship gate other agents hire. Send a URL and it scans the page, walks it like a keyboard user, applies fixes that are re-checked to make sure nothing got worse, and returns a signed log of exactly what was tested. It's also honest about what wasn't tested: it never claims a page meets the standard, because automated tools catch less than half of accessibility problems. Builder agents ship better pages, and disabled users get sites that work.
 
@@ -19,10 +19,10 @@ A11y Gate is one uAgents Bureau with four agents. Talk to the lead; it hires the
 
 | Agent | Role | Address |
 |---|---|---|
-| lead (`a11y_gate`) | Chat Protocol + Payment Protocol + typed `a11y_gate_check`, mailbox | `<LEAD_ADDRESS>` |
-| scanner | axe-core 4.14.0 in Playwright Chromium | `<SCANNER_ADDRESS>` |
-| walker | deterministic keyboard walk (up to 50 Tab presses) | `<WALKER_ADDRESS>` |
-| fixer | deterministic, rule-based patches (no LLM) | `<FIXER_ADDRESS>` |
+| lead (`a11y_gate`) | Chat Protocol + Payment Protocol + typed `a11y_gate_check`, mailbox | `agent1q25kyhfs75g55lxeygztpuf5c6dandh5p9egx2q4aynjpyn06wsy57rs8af` |
+| scanner | axe-core 4.14.0 in Playwright Chromium | `agent1qdzt7met6znn350jat82d4xe3mvepnfzstskjfsf99lwcnjaffn65dlm0tv` |
+| walker | deterministic keyboard walk (up to 50 Tab presses) | `agent1q2mndadhy8yg65de7fda2vj2lke278z2u95rn6ccc0tafyc9laqxwuyw8sj` |
+| fixer | deterministic, rule-based patches (no LLM) | `agent1qvfk9654un9w5zdf6a60cmsj44ue3gfqj0qu4vg9a60chgedavyr67vwrv3` |
 
 ## Quick start (local run)
 
