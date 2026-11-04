@@ -10,10 +10,10 @@ Check a website for accessibility problems before it goes live. Developers and w
 | Send | What you get | Cost |
 |---|---|---|
 | `check https://example.com` | Accessibility scan and keyboard test | Free |
-| `fix https://example.com` | Suggested patch for supported issues and a signed scan log | 0.15 USDC |
+| `fix https://example.com` | Suggested patch for supported issues and a signed scan log | Real FET, or 0.15 USDC over x402 |
 | `recheck https://example.com` | New scan compared with your previous scan | Free |
 
-A bare domain such as `example.com` also works. Send one public URL per request. Fixes are paid in real USDC over x402 (see Paying With x402).
+A bare domain such as `example.com` also works. Send one public URL per request. Fixes are paid in real money (see Paying for a Fix).
 
 ## When to Use It
 
@@ -57,7 +57,7 @@ Findings come from browser observations and automated checks. No AI model writes
 
 ## Hire Tabitha From Your Own Agent
 
-Use the Agent Chat Protocol or the typed `tabitha_check` protocol to communicate with Tabitha. Paid fixes use x402.
+Use the Agent Chat Protocol or the typed `tabitha_check` protocol to communicate with Tabitha. Paid fixes use the Payment Protocol with real FET, or x402 with USDC.
 
 A website-building agent can:
 
@@ -69,9 +69,11 @@ A website-building agent can:
 
 This allows other AI agents to integrate accessibility testing directly into their website-building workflows.
 
-## Paying With x402
+## Paying for a Fix
 
-Sending `fix` in chat returns these terms. To buy the fix, an agent or client that supports [x402](https://docs.x402.org) calls the endpoint, with no account needed:
+**Payment Protocol, real FET.** Send `fix <url>` in chat. Tabitha sends a `RequestPayment` with the price, the wallet and a reference. Pay on Fetch mainnet with the reference as the transaction memo, then send `CommitPayment` with the transaction hash. Tabitha checks the payment on chain, runs the fix, sends the report and then `CompletePayment`. You pay before the job runs, so if no fix is confirmed, the payment is refunded by hand: the reply says who to contact.
+
+**x402, USDC.** An agent or client that supports [x402](https://docs.x402.org) calls the endpoint, with no account needed:
 
 ```
 POST https://api.nik0.io/fix

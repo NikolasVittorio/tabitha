@@ -14,7 +14,7 @@ MAX_REPLY = 600
 
 FALLBACK = ("Hi, I'm Tabitha. I check websites for accessibility problems before they go live. "
             "Send me a page, like `check example.com`, and I'll test it in a real browser, including with a keyboard. "
-            "It's free for 5 scans a day. I can also suggest fixes with `fix example.com` for 0.15 USDC, paid over x402.")
+            "It's free for 5 scans a day. I can also suggest fixes with `fix example.com` for a small fee.")
 
 RULES = """You are Tabitha, an AI agent that checks websites for accessibility problems. Answer in at most 3 short sentences of plain text, using only the facts below. If the facts do not cover the question, say you don't know and say what you can do.
 

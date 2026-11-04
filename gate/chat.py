@@ -11,7 +11,7 @@ PAY_FIX = (f"Fixes cost {FIX_USDC} USDC on Base, paid over x402 by an agent or c
            "You are charged only if at least one fix is confirmed. `check <url>` stays free.")
 USAGE = ("Send `check <url>` for a free automated scan, or `fix <url>` for a patch "
          "rechecked on the page source with scripts off (page scripts are not re-run) "
-         f"+ signed scan log ({FIX_USDC} USDC over x402). "
+         "+ signed scan log (paid). "
          "Send `recheck <url>` after a fix to see what changed. "
          "A bare domain like `example.com` works too.")
 QUOTA_REPLY = "Free scan limit reached for today (5 per UTC day). " + USAGE
@@ -53,7 +53,7 @@ def parse_chat(text: str, sender: str, quota: Quota, today: date) -> Scan | Fix 
     # ponytail: a paid fix runs only when "fix" is the only command word, so "I pushed a fix, recheck x.com" scans.
     # Ceiling: "did the fix work? x.com" is also a fix. Hosts (fix.com) are cut out first so they are not commands.
     if {c.lower() for c in CMD.findall(DOMAIN.sub(" ", URL.sub(" ", text)))} == {"fix"}:
-        return Fix(url)  # paid: the lead replies with the x402 terms
+        return Fix(url)  # paid: the lead replies with the payment terms
     if not quota.allow(sender, today):
         return Reply(QUOTA_REPLY)
     return Scan(url)

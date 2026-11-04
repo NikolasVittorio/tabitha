@@ -1,7 +1,8 @@
 import asyncio
 import hashlib
 import os
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -10,7 +11,7 @@ from uagents_core.contrib.protocols.chat import (
     ChatAcknowledgement, ChatMessage, EndSessionContent, TextContent, chat_protocol_spec,
 )
 from uagents_core.contrib.protocols.payment import (
-    CommitPayment, Funds, RejectPayment, RequestPayment, payment_protocol_spec,
+    CancelPayment, CommitPayment, CompletePayment, Funds, RejectPayment, RequestPayment, payment_protocol_spec,
 )
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -19,14 +20,15 @@ from uagents_core.identity import Identity
 from agents.rpc import Pending
 from agents.subagents import make_fixer, make_scanner, make_walker
 from gate.history import History
-from gate.chat import FIX_URL, FIX_USDC, PAY_FIX, QUOTA_REPLY, USAGE, Fix, Reply, parse_chat
+from gate.chat import FIX_URL, PAY_FIX, QUOTA_REPLY, USAGE, Fix, Reply, parse_chat
 from gate.models import A11yCheckRequest, FixResult, Report, ScanResult, WalkResult
+from gate.payment import fet_settings, fetch_get_tx, verify_fet_payment
 from gate.pipeline import run_gate
 from gate.quota import Quota
 from gate.receipt import sign_receipt
 from gate.report import build_report, render_chat
 from gate.talk import FALLBACK, answer
-from gate.x402_api import PAY_WINDOW_S, make_app, serve
+from gate.x402_api import make_app, serve
 
 NAME = "Tabitha - Accessibility Agent"
 DESCRIPTION = ("Check websites for accessibility problems before launch: WCAG 2.2 AA scan, keyboard test, "
@@ -36,6 +38,8 @@ TALKS_PER_SENDER = 20  # a day; the model costs money and sender addresses are f
 TALKS_TOTAL = 500
 BUSY = "Busy — try again in a minute."
 NO_RECEIPT = "signed scan log unavailable (no signing key configured)"
+WINDOW = 300  # seconds a payment reference stays valid
+PAID_JOB_LIMIT_S = 300  # a paid job must always end in a reply
 
 
 def receipt_key() -> str | None:
@@ -51,8 +55,8 @@ def receipt_key() -> str | None:
     return key
 
 
-def make_lead(seed: str, sub_addrs: dict[str, str]) -> Agent:
-    """sub_addrs: {"scan": addr, "walk": addr, "fix": addr}."""
+def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agent:
+    """sub_addrs: {"scan": addr, "walk": addr, "fix": addr}. get_tx: blocking tx lookup (tests inject a fake)."""
     # concurrent: the chat handler awaits subagent replies that arrive on this same agent
     agent = Agent(name=NAME, seed=seed, mailbox=True, handle_messages_concurrently=True,
                   readme_path=str(PROFILE), description=DESCRIPTION)
@@ -62,6 +66,16 @@ def make_lead(seed: str, sub_addrs: dict[str, str]) -> Agent:
     chat = Protocol(spec=chat_protocol_spec)
     pay = Protocol(spec=payment_protocol_spec, role="seller")
     check_proto = Protocol(name="tabitha_check", version="0.1.0")
+    try:
+        fet = fet_settings(os.environ)
+    except ValueError as e:  # fail closed: fixes stay on x402, and the rest of the agent keeps running
+        print(f"FET payments off: {e}", flush=True)
+        fet = None
+    pay_note = PAY_FIX + (" Or send `fix <url>` over the Chat Protocol to pay in FET." if fet else "")
+    # ponytail: in memory, lost on restart (like the quota). The memo stops a replay across a restart, but a job
+    # paid just before a restart is lost, and is refunded by hand. Persist if paid volume ever matters.
+    pending_payments: dict[str, dict] = {}  # job_id -> {sender, url, deadline, timer}
+    used_tx: set[str] = set()
 
     def rpc(kind: str):
         async def call(ctx: Context, req):
@@ -115,6 +129,20 @@ def make_lead(seed: str, sub_addrs: dict[str, str]) -> Agent:
     async def say(ctx: Context, to: str, text: str, end: bool = True):
         await ctx.send(to, ChatMessage(content=[TextContent(text=text)] + ([EndSessionContent()] if end else [])))
 
+    async def close(ctx: Context, job_id: str, why: str):
+        """The only place a reference closes unpaid: CancelPayment + end of chat session, once."""
+        p = pending_payments.pop(job_id, None)
+        if not p:
+            return
+        if p["timer"] is not asyncio.current_task():
+            p["timer"].cancel()
+        await ctx.send(p["sender"], CancelPayment(reason=why))
+        await say(ctx, p["sender"], f"{why} (job {job_id}); no fix was run.")
+
+    async def expire(ctx: Context, job_id: str):
+        await asyncio.sleep(WINDOW)
+        await close(ctx, job_id, "payment window expired")  # chat-only callers still hear back
+
     talks, all_talks = Quota(TALKS_PER_SENDER), Quota(TALKS_TOTAL)
 
     @chat.on_message(ChatMessage)
@@ -122,13 +150,25 @@ def make_lead(seed: str, sub_addrs: dict[str, str]) -> Agent:
         await ctx.send(sender, ChatAcknowledgement(acknowledged_msg_id=msg.msg_id))
         today = datetime.now(timezone.utc).date()
         action = parse_chat(msg.text(), sender, quota, today)
-        if isinstance(action, Fix):  # fixes are sold only over x402: nothing runs from chat
-            if x402_to:
-                await ctx.send(sender, RequestPayment(
-                    accepted_funds=[Funds(currency="USDC", amount=FIX_USDC, payment_method="x402")],
-                    recipient=x402_to, deadline_seconds=PAY_WINDOW_S, reference=str(uuid4()),
-                    description=PAY_FIX, metadata={"x402_url": FIX_URL}))
-            return await say(ctx, sender, PAY_FIX)
+        if isinstance(action, Fix):  # never runs from chat alone: real FET here, or USDC over x402
+            if not fet:
+                return await say(ctx, sender, PAY_FIX)
+            job_id = str(uuid4())
+            until = (datetime.now(timezone.utc) + timedelta(seconds=WINDOW)).strftime("%H:%M:%S UTC")
+            pending_payments[job_id] = {"sender": sender, "url": action.url, "deadline": time.monotonic() + WINDOW,
+                                        "until": until, "timer": asyncio.create_task(expire(ctx, job_id))}
+            ctx.logger.info(f"job {job_id} payment requested")
+            await ctx.send(sender, RequestPayment(
+                accepted_funds=[Funds(currency="FET", amount=fet.price, payment_method="fet_direct")],
+                recipient=fet.pay_to, deadline_seconds=WINDOW, reference=job_id,
+                description=f"Accessibility patch + signed scan log, paid in real FET on Fetch mainnet. "
+                            f"Set the tx memo to {job_id} (the reference).",
+                metadata={"x402_url": FIX_URL}))
+            await say(ctx, sender, f"Payment requested: {fet.price} real FET to {fet.pay_to} on Fetch mainnet "
+                                   f"with tx memo {job_id}, within {WINDOW} s. If no fix is confirmed, the "
+                                   f"payment is refunded by hand: send the tx hash to {fet.refund_contact}. "
+                                   f"Or pay in USDC: {PAY_FIX}", end=False)
+            return
         if isinstance(action, Reply):
             if action.text != USAGE:
                 return await say(ctx, sender, action.text)
@@ -148,7 +188,7 @@ def make_lead(seed: str, sub_addrs: dict[str, str]) -> Agent:
             return await ctx.send(sender, build_report(job_id, "", [], [], error="bad_request"))  # never echo it
         if msg.mode == "fix":  # fixes are sold only over x402; a typed fix never runs
             r = build_report(job_id, url, [], [], error="payment_required")
-            return await ctx.send(sender, r.copy(update={"note": PAY_FIX}))
+            return await ctx.send(sender, r.copy(update={"note": pay_note}))
         r = await admit(ctx, sender, datetime.now(timezone.utc).date(), url, charge=True)
         if isinstance(r, str):
             r = build_report(job_id, url, [], [], error=r)
@@ -156,11 +196,63 @@ def make_lead(seed: str, sub_addrs: dict[str, str]) -> Agent:
 
     @pay.on_message(CommitPayment)
     async def on_commit(ctx: Context, sender: str, msg: CommitPayment):
-        await say(ctx, sender, f"Payment is taken over x402, not here. {PAY_FIX}", end=False)
+        job_id, tx_hash = msg.reference or "", msg.transaction_id
+
+        async def check():
+            """The sender's own open job; closes it (terminal) if its deadline passed; None = not usable."""
+            p = pending_payments.get(job_id)
+            if not p or p["sender"] != sender:  # a stranger can't touch someone else's reference
+                # never terminal: only close() ends a session, and it runs once per reference
+                await say(ctx, sender, "Unknown or closed payment reference.", end=False)
+                return None
+            if time.monotonic() >= p["deadline"]:
+                await close(ctx, job_id, "payment window expired")
+                return None
+            return p
+
+        async def retry(why: str):  # NON-terminal: the reference stays open until its deadline
+            await say(ctx, sender, f"Payment not accepted: {why}. Fix it and resend CommitPayment "
+                                   f"before {p['until']}.", end=False)
+
+        if not (p := await check()):
+            return
+        ctx.logger.info(f"job {job_id} tx={tx_hash}")  # the hash only, never tx contents
+        try:
+            tx = await asyncio.to_thread(get_tx, tx_hash)  # blocking query, off the event loop
+        except Exception:
+            return await retry("transaction lookup failed")
+        if tx is None:  # not indexed yet or chain unreachable: keep the job and its timer
+            return await say(ctx, sender, "transaction not found yet - resend CommitPayment", end=False)
+        # The job may have expired or been paid during the lookup. If it is still the same open job,
+        # there is no await from the deadline check through verify (check-and-add `used_tx`) to the pop.
+        if pending_payments.get(job_id) is not p or time.monotonic() >= p["deadline"]:
+            return await check()
+        if not verify_fet_payment(tx_hash, fet.pay_to, fet.afet, lambda _: tx, used_tx, job_id):
+            return await retry("memo must equal the payment reference" if tx.get("memo") != job_id else
+                               f"transaction failed, below {fet.price} FET, wrong recipient or already used")
+        del pending_payments[job_id]
+        p["timer"].cancel()
+        # Paid: from here every path must reply and must flag a refund if no fix was confirmed.
+        why = None
+        try:
+            async with sem:  # paid jobs wait for a slot instead of getting BUSY
+                r = with_delta(sender, await asyncio.wait_for(run_job(ctx, job_id, p["url"], True), PAID_JOB_LIMIT_S))
+            text = render_chat(r, agents=sub_addrs)
+            why = r.error or (None if any(f.outcome == "fixed" for f in r.fixes) else "nothing_fixed")
+        except Exception as e:
+            text, why = "Error: the job failed after payment.", type(e).__name__
+        if why:
+            ctx.logger.warning(f"REFUND_DUE job {job_id} tx={tx_hash} reason={why}")
+            text += (f"\n\nYou paid, but no fix was confirmed ({why}). "
+                     f"For a refund, send tx {tx_hash} to {fet.refund_contact}.")
+        await say(ctx, sender, text)
+        await ctx.send(sender, CompletePayment(transaction_id=tx_hash))  # only after the report is delivered
 
     @pay.on_message(RejectPayment)
     async def on_reject(ctx: Context, sender: str, msg: RejectPayment):
-        pass  # nothing is held open: no job runs until the x402 endpoint is paid
+        # RejectPayment carries no reference: drop every open request from this sender
+        for job_id in [j for j, p in pending_payments.items() if p["sender"] == sender]:
+            await close(ctx, job_id, "payment declined")
 
     @chat.on_message(ChatAcknowledgement)
     async def on_ack(ctx: Context, sender: str, msg: ChatAcknowledgement):

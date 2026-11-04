@@ -47,7 +47,7 @@ A caller sends one public URL. The agent opens it in a real browser and:
 |---|---|---|
 | `check <url>` | Free, 5 per sender per UTC day | Issues, keyboard walk, accessibility tree, untested criteria |
 | `recheck <url>` | Same as `check` | The same, plus "since your last scan: A → B (G no longer detected, N new)" and up to 5 of the new automated findings (needs-review findings are not compared) |
-| `fix <url>` | Free to ask; replies with the x402 terms and a Payment Protocol request | How to buy the fix: nothing runs from chat |
+| `fix <url>` | Real FET on Fetch mainnet (Agent Payment Protocol), paid before the job; refunded by hand if no fix is confirmed | All of the above, plus the patch, before/after trees and a signed log |
 | `POST https://api.nik0.io/fix` (x402) | 0.15 real USDC on Base, only if a fix is confirmed | The full `Report` with the patch, before/after trees and a signed log |
 | Typed `A11yCheckRequest {url, mode}` | Same as chat | The full `Report` as structured data, for agent-to-agent calls |
 
@@ -92,7 +92,7 @@ One Python process running a uAgents **Bureau** with **4 agents**. They are alwa
 
 | Agent | Job |
 |---|---|
-| **lead** (Tabitha - Accessibility Agent) | The only agent callers talk to. Handles the mailbox, the Chat Protocol, the Payment Protocol (seller, requests USDC over x402), the typed `tabitha_check` protocol, quota, admission (2 jobs at a time), recheck history and receipt signing |
+| **lead** (Tabitha - Accessibility Agent) | The only agent callers talk to. Handles the mailbox, the Chat Protocol, the Payment Protocol (seller), the typed `tabitha_check` protocol, quota, admission (2 jobs at a time), recheck history and receipt signing |
 | **scanner** | Runs axe-core in an isolated CDP world (page scripts can't tamper with it) and takes the ARIA snapshot |
 | **walker** | The deterministic keyboard walk |
 | **fixer** | The rule-based patcher, with the allowlist enforced by a recursive tree comparison |
@@ -102,6 +102,7 @@ The helper agents only accept messages from the lead's address.
 **External calls:**
 - the target page and its subresources, through an SSRF guard on every request and redirect
 - Agentverse, for the mailbox
+- the Fetch mainnet chain, to look up payments
 
 Nothing else. In production an nftables egress firewall blocks private, metadata and NAT64 ranges (this is the DNS-rebinding defence).
 
@@ -116,8 +117,8 @@ Nothing else. In production an nftables egress firewall blocks private, metadata
 - Docker on Fly.io
 
 **Code map:**
-- `gate/`: pure logic. Scanner, walker, fixer, allowlist, contrast, pipeline (fix → rescan → keep or drop), report, receipt, x402 endpoint, chat parsing, quota, history, WCAG table.
-- `agents/`: the uAgents glue. `lead.py`, `subagents.py`, `rpc.py`, and `x402_buyer.py` (a test client).
+- `gate/`: pure logic. Scanner, walker, fixer, allowlist, contrast, pipeline (fix → rescan → keep or drop), report, receipt, payment, x402 endpoint, chat parsing, quota, history, WCAG table.
+- `agents/`: the uAgents glue. `lead.py`, `subagents.py`, `rpc.py`, `demo_buyer.py` (pays real FET) and `x402_buyer.py` (test USDC).
 - `deploy/`: the entrypoint (firewall plus privilege drop) and `egress-check.sh`.
 - `docs/`: this file, `demo-script.md`, `outreach.md`, and the specs and plans under `superpowers/`.
 - `tests/`: 199 tests.
@@ -140,13 +141,13 @@ These came from the design council and the review rounds, and they're the core o
    - SSRF checks after DNS resolution
 5. **Nothing is stored** except in-memory hashes for recheck. Chat messages with no URL go to the ASI:One API so a model can answer them. Logs hold only rule ids, hashes and job ids.
 6. **Fixes stay inside the allowlist**, and each one is re-checked and kept only if nothing gets worse.
-7. **Fixes are paid only over x402.** Real USDC settles only after a confirmed fix, and a failed settlement withholds the report. It was tested end to end with test USDC.
+7. **Fixes are paid in real money.** Payment Protocol: real FET to the owner's wallet, the tx memo must equal the job id, a transaction can't be reused, and refunds are by hand. x402: real USDC settles only after a confirmed fix, and a failed settlement withholds the report; it was tested end to end with test USDC.
 
 ## Known limits and deferred items
 
 - **Fix verification runs on the page source with scripts off.** A page whose own scripts undo a fix won't be caught. A runtime re-check was deferred.
 - **Redirected pages** are scanned at the original URL.
-- **Quota and recheck history live in memory,** so a restart loses them.
+- **Payments in progress, quota and recheck history live in memory,** so a restart loses them. A job paid just before a restart is refunded by hand.
 - **iframes and shadow DOM** are flagged for review, not scanned inside.
 - **Chat URL parsing** accepts `http://`, `https://` and bare domains (`mysite.com` is read as `https://mysite.com`; a bare domain keeps its port, path, query and fragment). It still cuts URLs at parentheses and rejects IPv6. A full URL in the message wins over a bare domain, and emails and common file names such as `index.html` are ignored. Any dotted word ending in a 2 to 63 letter label counts as a domain (no TLD list), so a real TLD that is also a file extension (`.py`, `.md`) needs the full URL.
 - **The new checks are heuristics, and both end in "needs review".** Duplicate names look at the light DOM only, and "different purpose" for links means a different `href` once the `#fragment` is dropped. Obscured focus uses `elementFromPoint`, which ignores `pointer-events: none` overlays and runs in the page's own world.

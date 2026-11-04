@@ -1,6 +1,6 @@
 # Demo scripts
 
-Wording rules: never claim the page meets a standard. The keyboard line reads "keyboard walk result: N focus stops, keyboard trap found" and the fix section ends with "N criteria need human review" (N is measured from the actual smoke run; fill the placeholders from it, do not invent numbers). Screen-reader audio is pre-recorded with NVDA, never live. Fixes are paid in real USDC on Base over x402. Show a real payment only if one has actually settled; otherwise show the Base Sepolia one and label it as a test.
+Wording rules: never claim the page meets a standard. The keyboard line reads "keyboard walk result: N focus stops, keyboard trap found" and the fix section ends with "N criteria need human review" (N is measured from the actual smoke run; fill the placeholders from it, do not invent numbers). Screen-reader audio is pre-recorded with NVDA, never live. Fixes are paid in real money: real FET through the Payment Protocol, or USDC on Base over x402. Show a real payment only if one has actually settled; otherwise label it as a test.
 
 Demo page: `https://<gh-pages>/demo/broken.html`. Demo line: "Before: 'button. button. image.' After: 'Buy now, button. image.'"
 
@@ -23,8 +23,8 @@ Demo page: `https://<gh-pages>/demo/broken.html`. Demo line: "Before: 'button. b
 2. **Architecture (0:30-1:15).** One uAgents Bureau, four agents: lead (Chat and Payment Protocol, mailbox), scanner (axe-core 4.14.0 in Playwright), walker (keyboard walk, up to 50 Tab presses), fixer (rules only, no LLM). Show the four addresses.
 3. **Step 1: broken page (1:15-1:45).** Open `demo/broken.html`. [AUDIO: before]
 4. **Step 2: keyboard walk (1:45-2:15).** Run `check <url>`. Show the reply line: keyboard walk result: N focus stops, keyboard trap found. Mention logical order and obscured focus are reported as needing review, never as failures.
-5. **Step 3: patch (2:15-3:00).** Send `fix <url>` and show the reply with the terms. Then pay `https://api.nik0.io/fix` with an x402 client and show the `402` terms and the settlement. Then the patch with per-element fix outcomes, and "N criteria need human review". Show one fix labelled "verify wording" and one `needs_author` item (image alt text).
+5. **Step 3: patch (2:15-3:00).** Run `python -m agents.demo_buyer <url>`. Show the `RequestPayment`, the memo equal to the reference, the `CommitPayment` and the `CompletePayment`. Mention agents can also pay USDC over x402 at `https://api.nik0.io/fix`. Then the patch with per-element fix outcomes, and "N criteria need human review". Show one fix labelled "verify wording" and one `needs_author` item (image alt text).
 6. **Step 4: audio after (3:00-3:20).** [AUDIO: after] Point at the "What an AI agent sees, before and after the fixes" section of the reply (Before and After trees).
-7. **Step 5: receipt and payment (3:20-4:00).** Show the Automated Scan Log, verify the signature against the key published in the README, show the payment tx on Basescan. State it is valid for that exact input at that time only.
+7. **Step 5: receipt and payment (3:20-4:00).** Show the Automated Scan Log, verify the signature against the key published in the README, show the Fetch mainnet tx and the reference. State it is valid for that exact input at that time only.
 8. **Honest limits (4:00-4:30).** Show the disclaimer and the untested criteria. Automated coverage is roughly 40% at best (the GOV.UK GDS audit's best tool). Show `check http://169.254.169.254/` refused, and `check https://example.com` returning no automated violations with the same disclaimer.
 9. **Close (4:30-4:45).** Address, repo, badges, how a builder agent calls us.
