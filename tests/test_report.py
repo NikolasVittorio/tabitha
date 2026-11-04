@@ -27,8 +27,8 @@ def test_sections():
     fs = [F(f"r{i}") for i in range(7)] + [F("kb", "fail", "walker"), F("rv", "needs_review")]
     r = build_report("j", "u", fs, ["1.4.3"], fixes=[Fix(rule_id="r0", selector="#x", outcome="fixed", note="n")], diff="D", focus_count=12)
     t = render_chat(r)
-    assert "r0 — ` #x ` — WCAG 1.4.3" in t and "r4 — ` #x `" in t and "r5 — ` #x `" not in t
-    assert "Keyboard: 12 focus stops walked, 1 keyboard issues" in t
+    assert "(r0, 1 place, WCAG 1.4.3). Example: ` #x `" in t and "Plus 3 other issue types" in t
+    assert "**Keyboard test:** 12 focus stops walked, 1 keyboard issue." in t
     assert "r0" in t.split("Fixes")[1] and "fixed" in t
 def test_error_only():
     t = render_chat(build_report("j", "u", [], [], error="timeout"))
@@ -86,14 +86,14 @@ def test_fix_report_shows_before_and_after():
     assert "Before:" in t and "After:" in t and "(page source, scripts off)" in t
 def test_tree_truncated_in_chat():
     t = _tr(tree_before="x" * 1600)
-    assert "(tree truncated at 1500 characters)" in t and "x" * 1501 not in t
+    assert "(tree truncated at 600 characters)" in t and "x" * 601 not in t
 def test_no_tree_no_section():
     assert "accessibility tree" not in _tr()
 def test_delta_line_wording():
     from gate.models import Delta
     r = build_report("j", "u", [F("a")], ["1.4.3"]).copy(update={"delta": Delta(since="09:05 UTC 04 Nov", before=3, after=2, gone=2, new=1)})
     line = "Since your last scan of this URL (09:05 UTC 04 Nov): automated issues 3 → 2 (2 no longer detected, 1 new)"
-    assert render_chat(r).splitlines()[1] == line and not re.search(BANNED, line, re.I)
+    assert line in render_chat(r).splitlines() and not re.search(BANNED, line, re.I)
 def _fx(*pairs, outcome="fixed"):
     return [Fix(rule_id=r, selector=s, outcome=outcome, note="") for r, s in pairs]
 def _fixed_report(fixes, n=7):
@@ -101,17 +101,17 @@ def _fixed_report(fixes, n=7):
 def test_issues_left_line():
     t = _fixed_report(_fx(("r0", "#x"), ("r1", "#x"), ("r2", "#x"), ("r3", "#x")))
     line = "Automated issues 7 → 3 after fixes (4 fixed and re-checked on the page source with scripts off)"
-    assert t.splitlines()[1] == line and not re.search(BANNED, line, re.I)
+    assert line in t.splitlines() and not re.search(BANNED, line, re.I)
 def test_issues_left_none_fixed():
     t = _fixed_report(_fx(("r0", "#x"), outcome="not_fixed"))
-    assert t.splitlines()[1] == "No automated issue was fixed; see fix outcomes below" and "→" not in t
+    assert "No automated issue was fixed; see fix outcomes below" in t.splitlines() and "→" not in t
 def test_issues_left_dedupes_pairs():
     assert "7 → 6 after fixes (1 fixed" in _fixed_report(_fx(("r0", "#x"), ("r0", "#x")))
 def test_issues_left_ignores_uncounted_pairs():
     nr = Finding(rule_id="nr", source="axe", status="needs_review", impact=None, selector="#x", wcag=[], message="")
     r = build_report("j", "u", [F("r0"), F("r1"), nr], ["1.4.3"],
                      fixes=_fx(("r0", "#x"), ("nr", "#x"), ("ghost", "#y")), diff="d")
-    assert render_chat(r).splitlines()[1].startswith("Automated issues 2 → 1 after fixes (1 fixed")
+    assert "Automated issues 2 → 1 after fixes (1 fixed" in render_chat(r)
 def test_issues_left_absent_without_fixes():
     assert "after fixes" not in render_chat(build_report("j", "u", [F("a")], ["1.4.3"]))
 def test_patch_label():
@@ -131,7 +131,7 @@ def test_partial_scan_caveat_follows_since_line():
            "show as new or no longer detected for that reason alone.")
     d = Delta(since="x", before=3, after=2, gone=2, new=1, partial=True)
     t = render_chat(build_report("j", "u", [F("a")], ["1.4.3"]).copy(update={"delta": d}))
-    assert t.splitlines()[2] == cav and not re.search(BANNED, cav, re.I)
+    assert cav in t.splitlines() and not re.search(BANNED, cav, re.I)
     t = render_chat(build_report("j", "u", [F("a")], ["1.4.3"]).copy(update={"delta": d.copy(update={"partial": False})}))
     assert "partly checked" not in t
 
@@ -145,3 +145,25 @@ def test_chat_names_the_agents_that_worked():
     assert "Fixer ` agent1fix `" in render_chat(fixed, agents=subs)
     assert "agent1scan" not in render_chat(build_report("j", "u", [], [], error="timeout"), agents=subs)  # nothing ran
     assert "Agents on this job" not in render_chat(build_report("j", "u", [], ["1.4.3"]))
+def test_chat_leads_with_a_summary_and_groups_issues():
+    def f(rule, impact, sel):
+        return Finding(rule_id=rule, source="axe", status="fail", impact=impact, selector=sel, wcag=["1.4.3"], message=f"{rule} help.")
+    fs = [f("minor-a", "minor", "#m")] + [f("many", "serious", f"#s{i}") for i in range(3)] + [f("worst", "critical", "#c")]
+    t = render_chat(build_report("j", "https://e.com", fs, ["1.4.3"]))
+    assert t.startswith("**5 automated accessibility issues found**\nPage: ` https://e.com `\n\n**Top issues**\n")
+    assert t.index("**worst help**") < t.index("**many help**") < t.index("**minor-a help**")  # worst impact first
+    assert "(many, 3 places, WCAG 1.4.3). Example: ` #s0 `" in t and "#s1" not in t  # one example per type
+    assert "**Next:** send ` fix https://e.com `" in t and t.index("**Next:**") < t.index("**Not tested:**")
+    assert not re.search(BANNED, strip_code(t), re.I)
+def test_chat_next_step_follows_the_result():
+    assert "**Next:** have a person test" in render_chat(build_report("j", "u", [], ["1.4.3"]))
+    assert "**Next:** review the patch" in _fixed_report(_fx(("r0", "#x")))
+def test_fixes_are_grouped_by_rule_and_outcome():
+    t = _fixed_report(_fx(("r0", "#a"), ("r0", "#b")) + _fx(("r1", "#c"), outcome="regressed"))
+    assert "- r0: fixed and re-checked (2)" in t and "- r1: dropped, it added a new failure (1)" in t
+def test_long_selector_is_cut_in_chat():
+    assert "s" * 81 not in rep("s" * 200) and "s" * 80 in rep("s" * 200)
+def test_group_title_drops_detail_about_one_element():
+    f = Finding(rule_id="focus", source="walker", status="fail", impact=None, selector="#a", wcag=["2.4.7"],
+                message="No visible change on this element (Tab never reached it)")
+    assert "**No visible change on this element** (focus, 1 place" in render_chat(build_report("j", "u", [f], ["2.4.7"]))
