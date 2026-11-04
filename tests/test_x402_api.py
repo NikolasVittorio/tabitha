@@ -2,6 +2,7 @@ import base64
 import json
 
 import httpx
+import pytest
 from eth_account import Account
 from x402 import x402Client
 from x402.http.clients.httpx import x402_httpx_transport
@@ -11,7 +12,7 @@ from x402.schemas import SettleResponse, SupportedKind, SupportedResponse, Verif
 
 from gate.models import Fix
 from gate.report import build_report
-from gate.x402_api import NETWORK, make_app
+from gate.x402_api import LIVE_NETWORK, NETWORK, PRICE, make_app, settings
 
 PAY_TO = "0x000000000000000000000000000000000000dEaD"
 PAGE = "https://example.com/"
@@ -111,3 +112,15 @@ async def test_failed_settlement_withholds_the_report():
     async with paying(make_app(job, PAY_TO, f)) as c:
         r = await c.post("/fix", json={"url": PAGE})
     assert r.status_code == 402 and job.urls == [PAGE] and "report" not in r.text
+
+
+KEYS = {"CDP_API_KEY_ID": "id", "CDP_API_KEY_SECRET": "secret"}
+
+
+def test_real_money_only_when_asked_for_and_fully_configured():
+    assert settings({})[0] == NETWORK and settings({**KEYS, "X402_PRICE": "$5.00"})[:2] == (NETWORK, PRICE)
+    assert settings({**KEYS, "X402_LIVE": "1", "X402_PRICE": "$2.50"}) == (LIVE_NETWORK, "$2.50", "")
+    for bad in ({"X402_LIVE": "1", "X402_PRICE": "$2.50"}, {**KEYS, "X402_LIVE": "1"},
+                {**KEYS, "X402_LIVE": "1", "X402_PRICE": "2.50"}, {**KEYS, "X402_LIVE": "1", "X402_PRICE": "$0.00"}):
+        with pytest.raises(ValueError):
+            settings(bad)

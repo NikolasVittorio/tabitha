@@ -2,6 +2,8 @@
 handler, and settles only on a status below 400, holding the response until settlement succeeds.
 So a job that fails or fixes nothing is never charged, and a payment that fails gets no report."""
 import contextlib
+import os
+import re
 from typing import Awaitable, Callable
 
 import uvicorn
@@ -16,9 +18,8 @@ from x402.server import x402ResourceServer
 
 from gate.models import Report
 
-# ponytail: test money only, on purpose. Real USDC needs "eip155:8453" and a facilitator client
-# authenticated with Coinbase API keys, plus a price decision.
-NETWORK = "eip155:84532"  # Base Sepolia
+NETWORK = "eip155:84532"  # Base Sepolia test USDC, the default
+LIVE_NETWORK = "eip155:8453"  # Base, real USDC
 FACILITATOR_URL = "https://x402.org/facilitator"
 PRICE = "$1.00"
 PAY_WINDOW_S = 900  # a fix can take minutes and settles after it; the signed payment must outlive it
@@ -31,14 +32,33 @@ class FixBody(BaseModel):
     url: str = Field(max_length=2048)
 
 
+def settings(env=os.environ) -> tuple[str, str, str]:
+    """(network, price, description prefix). Real money only when asked for and fully configured."""
+    if env.get("X402_LIVE") != "1":
+        return NETWORK, PRICE, "Test mode. "
+    price = env.get("X402_PRICE", "")
+    if not re.fullmatch(r"\$\d+\.\d{2}", price) or float(price[1:]) <= 0:
+        raise ValueError("X402_LIVE needs X402_PRICE like $1.00")
+    if not (env.get("CDP_API_KEY_ID") and env.get("CDP_API_KEY_SECRET")):
+        raise ValueError("X402_LIVE needs CDP_API_KEY_ID and CDP_API_KEY_SECRET")
+    return LIVE_NETWORK, price, ""
+
+
 def make_app(run_fix: RunFix, pay_to: str, facilitator=None) -> FastAPI:
+    network, price, prefix = settings()
+    if facilitator is None:
+        if network == LIVE_NETWORK:
+            from cdp.x402 import create_facilitator_config  # reads the CDP keys
+            facilitator = HTTPFacilitatorClient(create_facilitator_config())
+        else:
+            facilitator = HTTPFacilitatorClient(FacilitatorConfig(url=FACILITATOR_URL))
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-    server = x402ResourceServer(facilitator or HTTPFacilitatorClient(FacilitatorConfig(url=FACILITATOR_URL)))
-    server.register(NETWORK, ExactEvmServerScheme())
+    server = x402ResourceServer(facilitator)
+    server.register(network, ExactEvmServerScheme())
     routes = {"POST /fix": RouteConfig(
-        accepts=PaymentOption(scheme="exact", pay_to=pay_to, price=PRICE, network=NETWORK,
+        accepts=PaymentOption(scheme="exact", pay_to=pay_to, price=price, network=network,
                               max_timeout_seconds=PAY_WINDOW_S),
-        description="Test mode. Accessibility fixes for a public web page, re-checked and signed. "
+        description=f"{prefix}Accessibility fixes for a public web page, re-checked and signed. "
                     "Charged only if at least one fix is confirmed.",
         mime_type="application/json")}
     app.add_middleware(PaymentMiddlewareASGI, routes=routes, server=server)

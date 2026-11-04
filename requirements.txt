@@ -6,5 +6,6 @@ beautifulsoup4==4.15.0
 cryptography==50.0.2
 cosmpy==0.12.2
 x402[evm,fastapi,httpx]==2.26.0
+cdp-sdk==1.51.0
 pytest==9.2.0
 pytest-asyncio==1.4.1.post1

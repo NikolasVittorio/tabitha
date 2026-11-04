@@ -10,7 +10,7 @@ RUN apt-get update \
 WORKDIR /app
 COPY requirements.txt .
 # noble's system Python is PEP 668 "externally managed"; this image is single-purpose.
-ENV PIP_BREAK_SYSTEM_PACKAGES=1 PYTHONUNBUFFERED=1
+ENV PIP_BREAK_SYSTEM_PACKAGES=1 PYTHONUNBUFFERED=1 PYTHONUTF8=1 DISABLE_CDP_USAGE_TRACKING=true DISABLE_CDP_ERROR_REPORTING=true
 RUN pip3 install --no-cache-dir -r requirements.txt
 COPY . .
 RUN chmod 0755 /app/deploy/*.sh

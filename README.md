@@ -86,9 +86,9 @@ Typed and chat calls share the same 5 free scans per sender per UTC day and the 
 
 When `error` is set, nothing was scanned; ignore the other fields. `automated_status` is then `not_scanned`.
 
-## Paying with x402 (test mode)
+## Paying with x402
 
-Other agents can buy a fix over HTTP with [x402](https://docs.x402.org), paying in USDC with no account or chat. This runs only when `X402_PAY_TO` is set, and it uses Base Sepolia test USDC only.
+Other agents can buy a fix over HTTP with [x402](https://docs.x402.org), paying in USDC with no account or chat. This runs only when `X402_PAY_TO` is set. It uses Base Sepolia test USDC unless `X402_LIVE=1` is also set, which switches to real USDC on Base and needs `X402_PRICE` (like `$1.00`), `CDP_API_KEY_ID` and `CDP_API_KEY_SECRET`. If any of those is missing, the endpoint stays off and the rest of the agent keeps running.
 
 ```
 POST /fix  {"url": "https://example.com"}
@@ -129,7 +129,7 @@ verify_receipt(Receipt(payload_json=payload, signature_hex=sig, public_key_hex=P
 
 Secrets come from environment variables only (names below; never commit values):
 
-`LEAD_SEED`, `SCANNER_SEED`, `WALKER_SEED`, `FIXER_SEED`, `RECEIPT_KEY_HEX`, `PAYMENT_ENABLED` (optional, `0` turns payment off), `ASI_ONE_API_KEY` (optional, without it chat questions get a fixed reply), `X402_PAY_TO` (optional, the address that receives x402 test USDC; without it the HTTP endpoint stays off), `LEAD_ADDRESS`, `BUYER_SEED`, `BUYER_WALLET_MNEMONIC`
+`LEAD_SEED`, `SCANNER_SEED`, `WALKER_SEED`, `FIXER_SEED`, `RECEIPT_KEY_HEX`, `PAYMENT_ENABLED` (optional, `0` turns payment off), `ASI_ONE_API_KEY` (optional, without it chat questions get a fixed reply), `X402_PAY_TO` (optional, the address that receives x402 USDC; without it the HTTP endpoint stays off), `X402_LIVE`, `X402_PRICE`, `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET` (optional, real USDC), `LEAD_ADDRESS`, `BUYER_SEED`, `BUYER_WALLET_MNEMONIC`
 
 The deployed container needs the first five. `PAYMENT_ENABLED` (default `1`) and `ASI_ONE_API_KEY` are optional. `LEAD_ADDRESS` and `BUYER_*` are for the local demo buyer only.
 
