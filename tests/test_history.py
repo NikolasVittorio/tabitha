@@ -3,15 +3,25 @@ from gate.history import History
 from gate.models import Delta, Finding
 from gate.report import build_report
 NOW = datetime(2026, 11, 4, 9, 5, tzinfo=timezone.utc)
-def R(*sels, url="https://secret.example/p", error=None):
+def R(*sels, url="https://secret.example/p", error=None, partial=False):
     fs = [Finding(rule_id="r", source="axe", status="fail", impact=None, selector=s, wcag=[], message="m") for s in sels]
+    if partial:
+        fs.append(Finding(rule_id="focus-visibility-partial", source="walker", status="needs_review", impact=None, selector="html", wcag=[], message="m"))
     return build_report("j", url, fs, [], error=error)
 def test_first_scan_no_delta():
     assert History().compare("s", "u", R("a"), NOW) is None
 def test_delta_counts():
     h = History()
     h.compare("s", "u", R("a", "b", "c"), NOW)
-    assert h.compare("s", "u", R("c", "d"), NOW) == Delta(since="09:05 UTC 04 Nov", before=3, after=2, gone=2, new=1)
+    assert h.compare("s", "u", R("c", "d"), NOW) == Delta(since="09:05 UTC 04 Nov", before=3, after=2, gone=2, new=1, new_at=[1])
+def test_new_findings_marked():
+    h = History()
+    h.compare("s", "u", R("a", "b"), NOW)
+    assert h.compare("s", "u", R("b", "c", "a"), NOW).new_at == [1]
+def test_unchanged_scan_marks_nothing():
+    h = History()
+    h.compare("s", "u", R("a"), NOW)
+    assert h.compare("s", "u", R("a"), NOW).new_at == []
 def test_other_sender_gets_no_delta():
     h = History()
     h.compare("A", "u", R("a"), NOW)
@@ -42,3 +52,14 @@ def test_counts_are_distinct_issues():
     h.compare("s", "u", R("a", "a", "b"), NOW)  # duplicate rule/selector counts once, like gone/new
     d = h.compare("s", "u", R("b"), NOW)
     assert (d.before, d.after, d.gone, d.new) == (2, 1, 1, 0)
+def test_partial_flag_when_either_scan_was_partial():
+    h = History()
+    h.compare("s", "u", R("a", partial=True), NOW)
+    assert h.compare("s", "u", R("a"), NOW).partial is True  # previous partial
+    assert h.compare("s", "u", R("a", partial=True), NOW).partial is True  # current partial
+    assert h.compare("s", "u", R("a"), NOW).partial is True  # previous (the partial one) still counts
+    assert h.compare("s", "u", R("a"), NOW).partial is False  # two full scans in a row
+def test_full_scans_are_not_partial():
+    h = History()
+    h.compare("s", "u", R("a"), NOW)
+    assert h.compare("s", "u", R("a"), NOW).partial is False

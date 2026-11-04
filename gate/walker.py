@@ -1,10 +1,15 @@
 """Deterministic keyboard walk: Tab through the page and report traps, modal escapes and invisible focus."""
+import time
+
 from playwright.async_api import Page
 
 from gate.models import Finding
 
-TESTED = ["2.1.1", "2.1.2", "2.4.3", "2.4.7"]
-CAP = 10
+TESTED = ["2.1.1", "2.1.2", "2.4.3", "2.4.7", "2.4.11"]
+CAP = 10  # most kbd-unreachable findings listed
+# ponytail: walk-wide wall clock, read between stops, so one slow check can overshoot it and time spent before
+# walk (page load) is not counted; upgrade: derive it from the time left on open_page's deadline
+FOCUS_BUDGET_S = 10.0
 MARGIN = 24  # px around the element box; a ring drawn further out is still caught by the style signature
 
 # JS snippets inlined into each evaluate body. Nothing is installed on window, so the page has no
@@ -101,6 +106,22 @@ async def _modal_check(page: Page) -> list[Finding]:
     return out
 
 
+async def _obscured(el) -> bool:
+    """True when the element is entirely under other content or outside the viewport: its box clipped to the viewport
+    is empty, or no sample point (centre and corners inset 2px, of that clipped box) hits it or a relative."""
+    # ponytail: elementFromPoint skips pointer-events:none overlays (a veil over the element goes unseen), returns the
+    # ancestor for an ancestor ::before/::after veil (so that is missed too), and runs in the page's main world, so a
+    # page can fake it; hence needs_review only. upgrade: isolated-world hit test
+    return await el.evaluate("""e => {
+      const b = e.getBoundingClientRect();
+      const l = Math.max(b.left, 0), t = Math.max(b.top, 0), r = Math.min(b.right, innerWidth), d = Math.min(b.bottom, innerHeight);
+      if (r < l || d < t) return true;
+      return [[(l + r) / 2, (t + d) / 2], [l + 2, t + 2], [r - 2, t + 2], [l + 2, d - 2], [r - 2, d - 2]]
+        .filter(([x, y]) => x >= 0 && y >= 0 && x < innerWidth && y < innerHeight)
+        .every(([x, y]) => { const h = document.elementFromPoint(x, y); return !h || !(e.contains(h) || h.contains(e)); });
+    }""")
+
+
 async def _focus_visible(page: Page, el) -> str | None:
     """'visible', 'invisible' or 'unverified' from blurred vs focused shots of the box + MARGIN; None if no box."""
     await el.evaluate("e => e.scrollIntoView({block: 'center'})")
@@ -138,11 +159,12 @@ async def _check_focus(page: Page, el, sel, findings, note=""):
 async def walk(page: Page, max_presses: int = 50) -> tuple[list[Finding], list[str], list[str]]:
     findings: list[Finding] = []
     seen: dict[str, bool] = {}  # selector -> inside a modal, in first-visit order
+    start = time.monotonic()  # the modal check and its reload count against the focus budget
     try:
         findings += await _modal_check(page)
         history: list[str] = []  # every non-body focus, in press order
         cycle = False
-        checks = 0
+        checked = skipped = 0  # focus stops whose indicator was / was not checked before the budget ran out
         for _ in range(max_presses):
             await page.keyboard.press("Tab")
             el = await _focused(page)
@@ -157,9 +179,15 @@ async def walk(page: Page, max_presses: int = 50) -> tuple[list[Finding], list[s
             if sel in seen:
                 continue
             seen[sel] = await el.evaluate("e => !!e.closest('[aria-modal=\"true\"],dialog[open]')")
-            if checks < CAP:
-                checks += 1
+            if await _obscured(el):  # before _check_focus, which scrolls the element to the centre
+                findings.append(_f("focus-obscured", "needs_review", "2.4.11", sel,
+                                   "While it has keyboard focus, this element cannot be seen: it is entirely covered by "
+                                   "other content or outside the visible page."))
+            if time.monotonic() - start < FOCUS_BUDGET_S:
+                checked += 1
                 await _check_focus(page, el, sel, findings)
+            else:
+                skipped += 1
         unvisited = await _unvisited(page, seen)
         tail = history[-10:]
         if (not cycle and len(tail) == 10 and len(set(tail)) <= 2 and not any(seen[s] for s in tail)
@@ -169,11 +197,17 @@ async def walk(page: Page, max_presses: int = 50) -> tuple[list[Finding], list[s
             findings.append(_f("kbd-unreachable", "needs_review", "2.1.1", sel, "Tab never reached this element."))
             # A trap hides everything after it, so still check the indicator, focusing the element from script.
             # Chromium keeps :focus-visible for script focus after keyboard input, so the result matches Tab.
-            if checks < CAP:
-                checks += 1
+            if time.monotonic() - start < FOCUS_BUDGET_S:
+                checked += 1
                 el = await page.query_selector(sel)
                 await el.evaluate("e => e.focus()")
                 await _check_focus(page, el, sel, findings, " (focused from script; Tab never reached it)")
+            else:
+                skipped += 1
+        if skipped:
+            findings.append(_f("focus-visibility-partial", "needs_review", "2.4.7", "html",
+                               f"Focus visibility was checked on {checked} of {checked + skipped} focus stops "
+                               "before the time limit; check the rest by hand."))
     except _Unverifiable:
         findings.append(_f("walk-unverifiable", "needs_review", "2.1.1", "html",
                            "The page reported focus inconsistently, so the keyboard walk was stopped "

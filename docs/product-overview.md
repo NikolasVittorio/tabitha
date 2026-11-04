@@ -2,7 +2,7 @@
 
 This is a briefing for anyone (person or agent session) thinking about new features. It covers what the product does today, why it's built the way it is, and the rules any new feature has to respect.
 
-State as of 4 Nov 2026: main at the Task 4 merge, 175 tests passing, not yet deployed. The hackathon (Fetch.ai "Stranger Builds") has a feature freeze on **Fri 6 Nov** and submission on **Mon 9 Nov, 13:59 AEDT**.
+State as of 4 Nov 2026: branch `feat/repeat-caller` (the repeat-caller wave, on top of main), 199 tests passing, not yet deployed. The hackathon (Fetch.ai "Stranger Builds") has a feature freeze on **Fri 6 Nov** and submission on **Mon 9 Nov, 13:59 AEDT**.
 
 ---
 
@@ -26,13 +26,16 @@ People come first in all messaging. The "AI agents see it too" angle is a bonus,
 
 A caller sends one public URL. The agent opens it in a real browser and:
 
-1. **Scans** it with axe-core 4.14.0 (rule tags `wcag2a, wcag2aa, wcag21a, wcag21aa, wcag22aa`).
-2. **Walks it like a keyboard user.** It presses Tab up to 50 times and records each focus stop. It finds keyboard traps and focus that can't be seen. Focus order and hidden focus are reported as "needs review", never as failures.
+1. **Scans** it with axe-core 4.14.0 (rule tags `wcag2a, wcag2aa, wcag21a, wcag21aa, wcag22aa`). It also runs two checks of its own on the same page (`source: "gate"`, both "needs review", neither adds a tested criterion, up to 10 findings):
+   - `duplicate-link-name` (2.4.4): links share an accessible name but go to different pages.
+   - `duplicate-button-name` (2.4.6): buttons share an accessible name.
+2. **Walks it like a keyboard user.** It presses Tab up to 50 times and records each focus stop, and it finds keyboard traps. It checks that the focus indicator can be seen on every stop, within a 10 s budget for the whole walk; if the budget runs out, `focus-visibility-partial` says how many stops were checked. It checks whether a focused element is entirely covered by other content or off-screen (`focus-obscured`, 2.4.11, needs review). It also checks that a modal dialog keeps Tab inside it and that Escape closes it and returns focus to its opener. A modal that Tab escapes (`modal-focus-escape`) is a **fail** under 2.4.3. Obscured focus, focus return and elements Tab never reaches are reported as "needs review". Focus order (2.4.3) is tested only for modal dialogs; there is no general focus-order check.
 3. **Shows the accessibility tree** ("what screen readers and AI agents see"), using a Playwright ARIA snapshot.
 4. **Fixes the safe issues** (paid `fix` only). The fixes are rule-based, with no AI model involved. Each one is **re-checked by re-scanning the patched page**, and any fix that makes things worse is dropped.
 5. **Reports honestly:**
    - automated issues found
    - "Automated issues N → M after fixes"
+   - on a repeat scan of the same URL, the counts since the last scan plus up to 5 findings under "New since your last scan:". Typed callers get `Delta.new_at`, the indices into `findings` of the new ones. These are new automated issues (`fail` and `needs_author`); needs-review findings are not compared. If focus visibility was only partly checked on either scan (time limit), `Delta.partial` is set and the reply adds a caveat line
    - a patch showing only the changed lines
    - the criteria it did **not** test
    - a fixed disclaimer
@@ -43,9 +46,11 @@ A caller sends one public URL. The agent opens it in a real browser and:
 | Command | Cost | Returns |
 |---|---|---|
 | `check <url>` | Free, 5 per sender per UTC day | Issues, keyboard walk, accessibility tree, untested criteria |
-| `recheck <url>` | Same as `check` | The same, plus "since your last scan: A → B (G no longer detected, N new)" |
+| `recheck <url>` | Same as `check` | The same, plus "since your last scan: A → B (G no longer detected, N new)" and up to 5 of the new automated findings (needs-review findings are not compared) |
 | `fix <url>` | 0.5 TEST FET on the Dorado testnet (Agent Payment Protocol) | All of the above, plus the patch, before/after trees and a signed log |
 | Typed `A11yCheckRequest {url, mode}` | Same as chat | The full `Report` as structured data, for agent-to-agent calls |
+
+A paid `fix` runs only when "fix" is the only command word in the message, so `I pushed a fix, recheck example.com` is a scan, not a fix. A command word inside a URL or host (`fix.com`) does not count.
 
 On error codes: typed replies carry `bad_request`, `quota_exceeded`, `busy`, `payment_required`, `timeout` or `blocked`. An error reply has `automated_status: "not_scanned"`, so it never reads as a clean page.
 
@@ -76,9 +81,9 @@ A fix may never:
 - 4 fixed and re-checked, which the report shows as **Automated issues 7 → 3**.
 - 1 needs the author (alt text), and 2 keyboard issues need a developer.
 - The tree goes from `button:` to `button "Buy now":`.
-- Tested 14 criteria; NOT tested 41.
+- Tested 15 criteria; NOT tested 40. The tested count is per page: it is the union of the walker's 5 and the criteria axe actually evaluated on that page.
 
-A real site, strangerbuilds.com: 47 focus stops walked, 0 keyboard issues, 0 automated violations, and 39 criteria still listed as needing a human.
+A real site, strangerbuilds.com (a live page, so the numbers move; measured 4 Nov 2026): 49 focus stops walked, 0 keyboard failures, 0 automated violations, 17 criteria tested and 38 still listed as needing a human. This wave added 2.4.11 to the walker's tested set, so both pages show one more criterion (up from 14 and 16 before this wave).
 
 ## How it's built
 
@@ -115,7 +120,7 @@ Nothing else. In production an nftables egress firewall blocks private, metadata
 - `agents/`: the uAgents glue. `lead.py`, `subagents.py`, `rpc.py`, and `demo_buyer.py` (a test client).
 - `deploy/`: the entrypoint (firewall plus privilege drop) and `egress-check.sh`.
 - `docs/`: this file, `demo-script.md`, `outreach.md`, and the specs and plans under `superpowers/`.
-- `tests/`: 175 tests.
+- `tests/`: 199 tests.
 
 ## Rules any new feature must keep
 
@@ -143,27 +148,30 @@ These came from the design council and the review rounds, and they're the core o
 - **Redirected pages** are scanned at the original URL.
 - **Payments and quota live in memory,** so a restart loses them.
 - **iframes and shadow DOM** are flagged for review, not scanned inside.
-- **Chat URL parsing** cuts URLs at parentheses, rejects IPv6, and needs `https://`. People typing `mysite.com` get the usage message. A small fix has been offered but not done.
+- **Chat URL parsing** accepts `http://`, `https://` and bare domains (`mysite.com` is read as `https://mysite.com`; a bare domain keeps its port, path, query and fragment). It still cuts URLs at parentheses and rejects IPv6. A full URL in the message wins over a bare domain, and emails and common file names such as `index.html` are ignored. Any dotted word ending in a 2 to 63 letter label counts as a domain (no TLD list), so a real TLD that is also a file extension (`.py`, `.md`) needs the full URL.
+- **The new checks are heuristics, and both end in "needs review".** Duplicate names look at the light DOM only, and "different purpose" for links means a different `href` once the `#fragment` is dropped. Obscured focus uses `elementFromPoint`, which ignores `pointer-events: none` overlays and runs in the page's own world.
 - **No pages behind a login.** One URL per request.
 
 ## Feature ideas already raised (starting points, not decisions)
 
-**More automated checks.** All are measurable with Playwright, and together they would raise the 14 tested criteria:
+**More automated checks.** All are measurable with Playwright, and each would add tested criteria (the demo page tests 15 today):
 
 | Idea | WCAG | Notes |
 |---|---|---|
-| Mouse-only controls: clickable elements Tab never reaches | 2.1.1 | Very common in AI-built pages. Top pick |
+| Mouse-only controls: clickable elements Tab never reaches | 2.1.1 | **Partly covered:** native focusable elements Tab never reaches are flagged (`kbd-unreachable`, needs review). Clickable non-focusable elements (`div onclick`) are not detected, so the idea stays open and is still a top pick |
 | Reflow at 320px width: sideways scrolling, clipped content | 1.4.10 | Top pick |
-| 200% zoom and text spacing: clipped or overlapping text | 1.4.4, 1.4.12 | Top pick |
+| 200% zoom and text spacing: clipped or overlapping text | 1.4.4, 1.4.12 | 1.4.12 is **partly covered** (axe `avoid-inline-spacing` flags inline `!important` spacing only), so it stays open. 200% zoom (1.4.4) is still open and a top pick |
 | Moving or autoplaying content with no pause control | 2.2.2 | |
 | Hover and focus pop-ups dismissible with Escape | 1.4.13 | |
 | Contrast of control borders and focus rings | 1.4.11 | |
-| Videos with no caption track | 1.2.2 | Presence only, not quality |
+| Videos with no caption track | 1.2.2 | **Already covered** by axe `video-caption` |
 | Form error messages | 3.3.1 | Only with every outgoing request blocked; never submit to real servers |
 
+**Built in the repeat-caller wave** (so no longer ideas): focus visibility on every Tab stop within a 10 s budget (2.4.7), obscured focus (2.4.11, needs review), duplicate link and button names (2.4.4 and 2.4.6, needs review), "New since your last scan" with `Delta.new_at`, and bare domains in chat.
+
 **Product and adoption:**
-- **Forgiving chat input.** Accept bare domains and natural phrasing for the ASI:One trials.
-- **A "Why this isn't a wrapper" section** in the README and launch video.
+- **Forgiving chat input** (built). Bare domains and natural phrasing are accepted for the ASI:One trials.
+- **A "Why this isn't a wrapper" section** in the README (built as "Not an overlay", which says no AI model writes the results) and in the launch video (not done).
 - **Runtime re-check of fixes** with scripts on.
 - **Rejected:**
   - `llms.txt` / `ai.txt` generation (it's SEO, needs crawling and a model)
