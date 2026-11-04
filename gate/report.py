@@ -48,7 +48,16 @@ def build_report(job_id, url, findings, tested, fixes=[], diff="", error=None, f
     )
 
 
-def render_chat(r: Report, max_diff_chars: int = 8000) -> str:
+ROLES = {"scan": ("Scanner", "axe-core scan"), "walk": ("Walker", "keyboard walk"),
+         "fix": ("Fixer", "patch, re-scanned before it is kept")}
+
+
+def _crew(r: Report, agents: dict[str, str]) -> list[str]:
+    worked = ["scan", "walk"] + (["fix"] if r.fixes else [])  # the fixer only counts if it produced outcomes
+    return ["Agents on this job:"] + [f"- {ROLES[k][0]} {_code(agents[k])}: {ROLES[k][1]}" for k in worked if k in agents]
+
+
+def render_chat(r: Report, max_diff_chars: int = 8000, agents: dict[str, str] | None = None) -> str:
     if r.error:
         return f"Error: {_code(r.error)}\n{USAGE}"
     fails = [f for f in r.findings if f.status in ("fail", "needs_author")]
@@ -72,6 +81,8 @@ def render_chat(r: Report, max_diff_chars: int = 8000) -> str:
     out.append(f"Needs review: {sum(f.status == 'needs_review' for f in r.findings)}")
     k = sum(f.source == "walker" and f.status == "fail" for f in r.findings)
     out.append(f"Keyboard: {r.focus_count} focus stops walked, {k} keyboard issues")
+    if agents:
+        out += _crew(r, agents)
     if r.tree_before and r.tree_after:
         out.append("What an AI agent sees, before and after the fixes (page source, scripts off):")
         out += _tree("Before:", r.tree_before) + _tree("After:", r.tree_after)

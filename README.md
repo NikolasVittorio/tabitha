@@ -47,7 +47,7 @@ Send a chat message to the lead (for example from ASI:One):
 - `fix <url>`: patch rechecked on the page source with scripts off (page scripts are not re-run) plus signed scan log, 0.5 TEST FET on Dorado testnet. Live charging is off.
 - `recheck <url>`: a free scan like `check`, sent after a fix. When you have scanned the same URL before, any scan reply adds a "Since your last scan" line: issue counts before and after, how many are no longer detected and how many are new. It then lists up to 5 of the new ones under "New since your last scan:". These are automated issues (`fail` and `needs_author` findings); needs-review findings are not compared. If focus visibility was only partly checked on either scan (time limit), the reply says focus issues can show as new or no longer detected for that reason alone.
 
-Scan replies also show the page's accessibility tree when it can be read, in the "What an AI agent sees" section. After a `fix` it shows the tree before and after the patch, both taken from the page source with scripts off.
+Scan replies name the agents that worked on the job, with their addresses. They also show the page's accessibility tree when it can be read, in the "What an AI agent sees" section. After a `fix` it shows the tree before and after the patch, both taken from the page source with scripts off.
 
 `fix` uses the Payment Protocol (seller role). The lead sends a `RequestPayment` for 0.5 TEST FET (`fet_direct`) to its own wallet address, with the job id as `reference` and a 300 s deadline. The buyer pays on Dorado **with the tx memo set to the reference** and sends `CommitPayment` with the tx hash and that reference. The lead checks the tx on chain (successful, memo equals the reference, a bank send of at least 0.5 TEST FET to its address, hash never used before). Only then does it run the fix, and it replies `CompletePayment` after the report is delivered. A tx that is not indexed yet gets "transaction not found yet - resend CommitPayment". Any other mismatch gets a "Payment not accepted: <reason>" chat line. In both cases the reference stays open until its deadline, so fix it and resend `CommitPayment`. In-memory; a restart mid-job loses the paid job (testnet). A reference is consumed once, by a verified payment, and only the sender who asked can use it. `CancelPayment` is sent only when a reference closes unpaid: at the deadline ("payment window expired", which also reaches chat-only callers) or after `RejectPayment`.
 
@@ -131,7 +131,7 @@ Page: `demo/broken.html` (served from GitHub Pages). Buyer: `python -m agents.de
 ## Submission evidence
 
 - [ ] Public, non-fork GitHub repo
-- [ ] 3 assigned ASI:One trials, plus 1 change made from their feedback (own commit)
+- [ ] 1 assigned ASI:One try (2+ minutes, written note, 1-5 rating), plus 1 change made from that feedback (own commit)
 - [ ] Launch video, 2 minutes or less
 - [ ] Walkthrough video, 3 to 5 minutes
 - [ ] Innovation Lab badges in this README

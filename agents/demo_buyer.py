@@ -60,7 +60,7 @@ def pay(recipient: str, amount: int, memo: str) -> str:
 
 
 def make_buyer(seed: str, lead: str, url: str) -> Agent:
-    agent = Agent(name="a11y_demo_buyer", seed=seed, mailbox=True)
+    agent = Agent(name="a11y_demo_buyer", seed=seed, mailbox=True, port=8001)  # the lead holds 8000
     chat = Protocol(spec=chat_protocol_spec)
     payp = Protocol(spec=payment_protocol_spec, role="buyer")
     state = {"commit": None, "sends": 0, "want": False, "paying": False}

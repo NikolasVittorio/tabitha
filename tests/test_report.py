@@ -134,3 +134,14 @@ def test_partial_scan_caveat_follows_since_line():
     assert t.splitlines()[2] == cav and not re.search(BANNED, cav, re.I)
     t = render_chat(build_report("j", "u", [F("a")], ["1.4.3"]).copy(update={"delta": d.copy(update={"partial": False})}))
     assert "partly checked" not in t
+
+
+def test_chat_names_the_agents_that_worked():
+    from gate.models import Fix
+    subs = {"scan": "agent1scan", "walk": "agent1walk", "fix": "agent1fix"}
+    t = render_chat(build_report("j", "u", [], ["1.4.3"]), agents=subs)
+    assert "Scanner ` agent1scan `" in t and "Walker ` agent1walk `" in t and "agent1fix" not in t  # a scan hires no fixer
+    fixed = build_report("j", "u", [], ["1.4.3"], fixes=[Fix(rule_id="r", selector="s", outcome="fixed", note="")])
+    assert "Fixer ` agent1fix `" in render_chat(fixed, agents=subs)
+    assert "agent1scan" not in render_chat(build_report("j", "u", [], [], error="timeout"), agents=subs)  # nothing ran
+    assert "Agents on this job" not in render_chat(build_report("j", "u", [], ["1.4.3"]))

@@ -145,7 +145,7 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=dorado_get_tx) -> Age
         if isinstance(r, str):
             text = QUOTA_REPLY if r == "quota_exceeded" else BUSY
         else:
-            text = f"{FREE_FIX}\n\n{render_chat(r)}" if is_fix else render_chat(r)
+            text = f"{FREE_FIX}\n\n{render_chat(r, agents=sub_addrs)}" if is_fix else render_chat(r, agents=sub_addrs)
         await say(ctx, sender, text)
 
     @check_proto.on_message(A11yCheckRequest, replies=Report)
@@ -205,7 +205,7 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=dorado_get_tx) -> Age
         # ponytail: in-memory, testnet only; a restart mid-job loses the paid job. Persist before real money.
         async with sem:  # paid jobs wait for a slot instead of getting BUSY
             r = with_delta(sender, await run_job(ctx, job_id, p["url"], True))
-        await say(ctx, sender, render_chat(r))
+        await say(ctx, sender, render_chat(r, agents=sub_addrs))
         await ctx.send(sender, CompletePayment(transaction_id=tx_hash))  # only after the report is delivered
 
     @pay.on_message(RejectPayment)
