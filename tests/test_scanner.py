@@ -143,3 +143,12 @@ async def test_dupes_evaluate_is_time_bounded():
             return {"result": {"type": "object"}, "exceptionDetails": {"text": "Script execution timed out."}}
 
     assert await _dupes(Cdp(), 1) == [] and seen["timeout"] == 5000  # CDP's own cap; the page cannot stall the scan
+
+
+async def test_axe_string_data_does_not_crash_the_scan():
+    html = ('<html lang="en"><head><title>t</title></head><body><main><p id="a">one</p><p id="a">two</p>'
+            '<input aria-labelledby="a"></main></body></html>')
+    async with open_html(html, "http://127.0.0.1:1/") as page:
+        findings, _ = await scan(page)
+    found = [f for f in findings if f.rule_id == "duplicate-id-aria"]
+    assert found and found[0].data == {}

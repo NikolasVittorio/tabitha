@@ -96,7 +96,7 @@ async def scan(page: Page) -> tuple[list[Finding], list[str]]:
             else:
                 status = "needs_author" if rule["id"] == "image-alt" else "fail"
             for node in rule["nodes"]:
-                data = next((a["data"] for a in node["any"] if a.get("data")), {})
+                data = next((a["data"] for a in node["any"] if a.get("data") and isinstance(a["data"], dict)), {})  # axe data can be a string
                 t = node["target"]
                 sel, msg, st = t[0], rule["help"], status
                 if len(t) > 1 or not isinstance(sel, str):  # iframe or shadow path
