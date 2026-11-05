@@ -14,7 +14,7 @@ USAGE = ("Send `check <url>` for a free automated scan, or `fix <url>` for a pat
          "+ signed scan log (paid). "
          "Send `recheck <url>` after a fix to see what changed. "
          "A bare domain like `example.com` works too.")
-QUOTA_REPLY = "Free scan limit reached for today (5 per UTC day). " + USAGE
+QUOTA_REPLY = "Free scan limit reached for today (5 per UTC day). Free scans start again at 00:00 UTC."
 
 
 @dataclass(frozen=True)
