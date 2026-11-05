@@ -24,8 +24,9 @@ def _rows(rows: dict[str, str]) -> list[dict]:
     return [{"label": k, "value": v} for k, v in rows.items()]
 
 
-def intake() -> MetadataContent:
-    return _card("form", {
+def intake(terminal: bool = False) -> MetadataContent:
+    """terminal: informational, so ASI:One's planner doesn't pause on it after a reply with nothing to choose."""
+    card = _card("form", {
         "title": "Check a page for accessibility problems",
         "fields": [
             {"name": "url", "kind": "text", "label": "Page address", "required": True},
@@ -33,6 +34,9 @@ def intake() -> MetadataContent:
                 {"value": "check", "label": "Scan it (free)"},
                 {"value": "fix", "label": "Suggest a patch (paid)"}]}],
         "submit_cta": {"label": "Run", "selection": {"action": "tabitha_run"}}})
+    if terminal:
+        card.metadata["is_terminal"] = "true"
+    return card
 
 
 def offer_fix(r: Report, price: str) -> MetadataContent:

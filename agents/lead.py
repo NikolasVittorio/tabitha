@@ -136,7 +136,7 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
         beyond a line stalled the send and never displayed, and sends go out one at a time, so one stall held up the
         rest. ponytail: measured behaviour, not documented; retest the bare reply if ASI:One changes."""
         started = time.monotonic()
-        card = card or intake()
+        card = card or intake(terminal=True)
         status = await ctx.send(to, ChatMessage(content=[TextContent(text=text), card]))
         ctx.logger.info(f"reply {getattr(status, 'status', 'unknown')} in {time.monotonic() - started:.1f}s "
                         f"chars={len(text)} card={card.metadata['card_kind']}")
@@ -190,7 +190,7 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
             if action.text != USAGE:
                 return await say(ctx, sender, action.text)
             ok = talks.allow(sender, today) and all_talks.allow("all", today)
-            return await say(ctx, sender, await answer(msg.text(), PROFILE.read_text()) if ok else FALLBACK)
+            return await say(ctx, sender, await answer(msg.text(), PROFILE.read_text()) if ok else FALLBACK, card=intake())
         r = await admit(ctx, sender, today, action.url, charge=False)  # parse_chat already charged the scan
         if isinstance(r, str):
             return await say(ctx, sender, QUOTA_REPLY if r == "quota_exceeded" else BUSY)

@@ -97,6 +97,7 @@ async def test_no_url_gets_answer_and_form(on_chat, monkeypatch):
     monkeypatch.setattr(lead_mod, "answer", answer)
     _, msg = await say_to(on_chat(), "what do you do?")
     assert msg.text() == "Hi" and cards(msg)[0].metadata["card_kind"] == "form" and not ends(msg)
+    assert "is_terminal" not in cards(msg)[0].metadata  # this form is the next step, so it must stay usable
 
 
 async def test_scan_with_issues_offers_a_fix_alongside_the_full_report(on_chat, monkeypatch):
@@ -114,6 +115,7 @@ async def test_nothing_to_sell_means_no_card(on_chat, monkeypatch, report):
     monkeypatch.setattr(lead_mod, "run_gate", gate)
     _, msg = await say_to(on_chat(), f"check {URL}")
     assert cards(msg)[0].metadata["card_kind"] == "form" and not ends(msg)  # nothing to sell: only "check another page"
+    assert cards(msg)[0].metadata["is_terminal"] == "true"  # the planner must not pause on it
 
 
 async def test_no_card_offer_when_fet_is_off(on_chat, monkeypatch):
