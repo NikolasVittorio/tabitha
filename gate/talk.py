@@ -1,4 +1,5 @@
-"""Answers chat messages that have no URL. Never starts a job, never sees a report: it only returns text."""
+"""Answers chat messages that have no URL. Never starts a job, never sees a report: it only returns text.
+gate/suggest.py uses the same model for label wording, marked as an unchecked suggestion."""
 import asyncio
 import logging
 import os
@@ -35,13 +36,17 @@ def safe(reply: str) -> bool:
     return 0 < len(reply) <= MAX_REPLY and not UNSAFE.search(reply)
 
 
-async def _ask(text: str, facts: str, key: str) -> str:
-    body = {"model": MODEL, "temperature": 0.3, "max_tokens": 200,
-            "messages": [{"role": "system", "content": RULES + facts}, {"role": "user", "content": text[:MAX_INPUT]}]}
+async def complete(system: str, user: str, key: str, max_tokens: int = 200) -> str:
+    body = {"model": MODEL, "temperature": 0.3, "max_tokens": max_tokens,
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=TIMEOUT_S)) as s:
         async with s.post(API, json=body, headers={"Authorization": f"Bearer {key}"}) as r:
             r.raise_for_status()
             return ((await r.json())["choices"][0]["message"]["content"] or "").strip()
+
+
+async def _ask(text: str, facts: str, key: str) -> str:
+    return await complete(RULES + facts, text[:MAX_INPUT], key)
 
 
 async def answer(text: str, facts: str) -> str:

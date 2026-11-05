@@ -9,6 +9,7 @@ from gate.models import (Finding, Fix, FixRequest, FixResult, Report, ScanReques
 from gate.allowlist import parse
 from gate.fixer import fix as apply_fixes
 from gate.report import build_report
+from gate.suggest import suggest_labels
 
 ScanFn = Callable[[ScanRequest], Awaitable[ScanResult]]
 WalkFn = Callable[[WalkRequest], Awaitable[WalkResult]]
@@ -100,6 +101,7 @@ async def run_gate(job_id: str, url: str, scan: ScanFn, walk: WalkFn, fix: FixFn
     if fix is not None and s.html is not None:
         try:
             fixes, diff, tb, ta = await _gate(job_id, url, s.html, s.findings, scan, fix)
+            fixes = await suggest_labels(s.html, fixes)
             if tb is None:  # only then: an empty baseline tree stays empty, never the live tree
                 tb, ta = s.tree, ""
         except Exception:  # any rescan/fixer failure: still return the scan report

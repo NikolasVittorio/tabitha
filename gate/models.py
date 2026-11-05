@@ -55,6 +55,7 @@ class Fix(Model):
     outcome: Literal["fixed", "not_fixed", "regressed", "needs_author"]
     note: str
     changes: dict[str, str] = {}  # what a person sets on this element, whatever stack built the page
+    suggestion: str = ""  # unchecked ASI-1 wording for a needs_author label; never applied, never in the signed log
 
 
 class FixResult(Model):

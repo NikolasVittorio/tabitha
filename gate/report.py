@@ -116,9 +116,14 @@ def _change(x) -> str:
     return f"- {_code(x.selector[:SELECTOR_CHARS])}: set {made}{check}"
 
 
+def _needs_you(x) -> str:
+    draft = f" AI suggestion, not checked: {_code(x.suggestion)}" if x.suggestion else ""
+    return f"- {_code(x.selector[:SELECTOR_CHARS])}: {_code(x.note)}{draft}"
+
+
 def _fix_sections(r: Report) -> list[str]:
     fixed = [x for x in r.fixes if x.outcome == "fixed"]
-    author = [x for x in r.fixes if x.outcome == "needs_author"]
+    author = sorted((x for x in r.fixes if x.outcome == "needs_author"), key=lambda x: not x.suggestion)  # ready wording first
     groups: dict[tuple[str, str], int] = {}
     for x in r.fixes:
         groups[(x.rule_id, x.outcome)] = groups.get((x.rule_id, x.outcome), 0) + 1
@@ -127,7 +132,7 @@ def _fix_sections(r: Report) -> list[str]:
     if fixed:
         out.append(_listed("**Changes to make**", [_change(x) for x in fixed], CHANGES_MAX))
     if author:
-        out.append(_listed("**Needs you**", [f"- {_code(x.selector[:SELECTOR_CHARS])}: {_code(x.note)}" for x in author], NEEDS_YOU_MAX))
+        out.append(_listed("**Needs you**", [_needs_you(x) for x in author], NEEDS_YOU_MAX))
     out.append("\n".join(["**Fixes**"] + [f"- {rule}: {OUTCOMES[o]} ({c})" for (rule, o), c in groups.items()]))
     return out
 
