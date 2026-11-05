@@ -174,12 +174,14 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
             pending_payments[job_id] = {"sender": sender, "url": action.url, "deadline": time.monotonic() + WINDOW,
                                         "until": until, "afet": afet, "timer": asyncio.create_task(expire(ctx, job_id))}
             ctx.logger.info(f"job {job_id} payment requested")
+            terms = (f"Accessibility changes + signed scan log, paid in real FET on Fetch mainnet. "
+                     f"Pay exactly {amount} FET, or set the tx memo to {job_id} (the reference).")
             await ctx.send(sender, RequestPayment(
                 accepted_funds=[Funds(currency="FET", amount=amount, payment_method="fet_direct")],
-                recipient=fet.pay_to, deadline_seconds=WINDOW, reference=job_id,
-                description=f"Accessibility changes + signed scan log, paid in real FET on Fetch mainnet. "
-                            f"Pay exactly {amount} FET, or set the tx memo to {job_id} (the reference).",
-                metadata={"x402_url": FIX_URL, "fet_network": "mainnet"}))  # fet_network: as in Fetch's FET example
+                recipient=fet.pay_to, deadline_seconds=WINDOW, reference=job_id, description=terms,
+                # ASI:One's payment card reads these keys, per Fetch's FET example; without them it fails the request
+                metadata={"x402_url": FIX_URL, "provider_agent_wallet": fet.pay_to, "fet_network": "mainnet",
+                          "mainnet": "true", "content": terms}))
             await say(ctx, sender, f"Payment requested: exactly {amount} real FET on Fetch mainnet, within {WINDOW} s. "
                                    f"The exact amount ties your payment to this job. If no fix is confirmed, the "
                                    f"payment is refunded by hand: send the tx hash to {fet.refund_contact}.")

@@ -142,6 +142,8 @@ async def test_wrong_sender_rejected_then_owner_pays():
     assert req.deadline_seconds == 300 and req.reference in req.description
     assert req.accepted_funds[0].amount.startswith("0.50") and req.accepted_funds[0].payment_method == "fet_direct"
     assert req.metadata["fet_network"] == "mainnet" and req.accepted_funds[0].amount in req.description
+    assert req.metadata["provider_agent_wallet"] == TO and req.metadata["mainnet"] == "true"
+    assert all(isinstance(v, str) for v in req.metadata.values())
     pay("h1", req)
     await on_commit(ctx, "mallory", commit(req, "h1"))
     assert ctx.sent[-1][0] == "mallory" and ctx.sent[-1][1].text() == UNKNOWN
