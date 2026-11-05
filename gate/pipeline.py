@@ -7,6 +7,7 @@ from typing import Awaitable, Callable
 from gate.models import (Finding, Fix, FixRequest, FixResult, Report, ScanRequest, ScanResult,
                          WalkRequest, WalkResult)
 from gate.allowlist import parse
+from gate.fixer import fix as apply_fixes
 from gate.report import build_report
 
 ScanFn = Callable[[ScanRequest], Awaitable[ScanResult]]
@@ -74,6 +75,16 @@ async def _gate(job_id: str, url: str, html: str, findings: list[Finding], scan:
     return fixes, diff, b.tree, tree
 
 
+async def _quote(html: str, findings: list[Finding]) -> int:
+    """How many issues a paid patch could cover, so nobody pays for nothing. An upper bound: the rescan can drop a fix."""
+    todo = [f for f in findings if f.source == "axe" and f.status in ("fail", "needs_author")]
+    try:
+        _, fixes = await asyncio.to_thread(apply_fixes, html, todo)
+    except Exception:  # the scan report still goes out, with no paid offer
+        return 0
+    return sum(x.outcome == "fixed" for x in fixes)
+
+
 async def run_gate(job_id: str, url: str, scan: ScanFn, walk: WalkFn, fix: FixFn | None) -> Report:
     try:
         s, w = await asyncio.gather(scan(ScanRequest(job_id=job_id, url=url)),
@@ -85,6 +96,7 @@ async def run_gate(job_id: str, url: str, scan: ScanFn, walk: WalkFn, fix: FixFn
     if s.error or w.error:
         return build_report(job_id, url, [], [], error=s.error or w.error)
     fixes, diff, note, tb, ta = [], "", "", s.tree, ""
+    fixable = await _quote(s.html, s.findings) if fix is None and s.html is not None else 0
     if fix is not None and s.html is not None:
         try:
             fixes, diff, tb, ta = await _gate(job_id, url, s.html, s.findings, scan, fix)
@@ -94,5 +106,5 @@ async def run_gate(job_id: str, url: str, scan: ScanFn, walk: WalkFn, fix: FixFn
             fixes, diff, note, tb, ta = [], "", "fix step unavailable", s.tree, ""
     r = build_report(job_id, url, w.findings + s.findings, sorted(set(s.tested) | set(w.tested)),
                      fixes=fixes, diff=diff, focus_count=len(w.focus_path))
-    return r.copy(update={"note": note, "tree_before": tb, "tree_after": ta,
+    return r.copy(update={"note": note, "tree_before": tb, "tree_after": ta, "fixable": fixable,
                           "input_sha256": hashlib.sha256(s.html.encode()).hexdigest() if s.html else ""})

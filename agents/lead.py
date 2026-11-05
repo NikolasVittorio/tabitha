@@ -182,7 +182,7 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
         r = await admit(ctx, sender, today, action.url, charge=False)  # parse_chat already charged the scan
         if isinstance(r, str):
             return await say(ctx, sender, QUOTA_REPLY if r == "quota_exceeded" else BUSY)
-        offer = offer_fix(r, fet.price) if fet and r.violation_count and not r.error else None
+        offer = offer_fix(r, fet.price) if fet and r.fixable and not r.error else None
         await say(ctx, sender, render_chat(r, agents=sub_addrs), card=offer)
 
     @check_proto.on_message(A11yCheckRequest, replies=Report)

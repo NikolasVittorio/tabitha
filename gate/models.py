@@ -103,3 +103,4 @@ class Report(Model):
     tree_before: str = ""
     tree_after: str = ""
     delta: Delta | None = None
+    fixable: int = 0  # on a free scan: how many issues a paid patch could cover, at most

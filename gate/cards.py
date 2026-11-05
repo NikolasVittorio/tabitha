@@ -40,6 +40,7 @@ def offer_fix(r: Report, price: str) -> MetadataContent:
         "summary_rows": _rows({"Page": r.url, "Automated issues": str(r.violation_count),
                                "Keyboard test": f"{r.focus_count} focus stops, {keyboard} issues",
                                "Not tested": f"{len(r.untested)} criteria need a person",
+                               "Patch can cover": f"up to {r.fixable} of {r.violation_count} issues",
                                "Patch price": f"{price} FET", "Payment": PAY_FIRST}),
         "approve_cta": {"label": f"Get a patch for {price} FET", "primary": True,
                         "selection": {"action": "fix", "url": r.url}},

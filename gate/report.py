@@ -92,9 +92,12 @@ def _next(r: Report) -> str:
         return f"**Next:** apply the changes below and check their wording, then send {_code('recheck ' + r.url)}."
     if r.fixes:
         return f"**Next:** work through the list below, then send {_code('recheck ' + r.url)}."
+    if r.fixable:
+        return (f"**Next:** send {_code('fix ' + r.url)} for changes covering up to {r.fixable} of "
+                f"{r.violation_count} issues (paid), or {_code('recheck ' + r.url)} after you change the page.")
     if r.violation_count:
-        return (f"**Next:** send {_code('fix ' + r.url)} for a suggested patch (paid), "
-                f"or {_code('recheck ' + r.url)} after you change the page.")
+        return (f"**Next:** these need a person, because a patch can't safely cover them. "
+                f"Send {_code('recheck ' + r.url)} after you change the page.")
     return f"**Next:** have a person test what automated checks cannot, and send {_code('recheck ' + r.url)} after changes."
 
 

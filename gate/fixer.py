@@ -91,13 +91,16 @@ def fix(html: str, findings: list[Finding], rules: set[str] | None = None) -> tu
     except ValueError as e:  # duplicate attributes: serialising would change what browsers see
         return html, [Fix(rule_id=f.rule_id, selector=f.selector, outcome="not_fixed", note=str(e)) for f in todo]
     fixes = []
+    before = str(soup)
     for f in todo:
-        before = str(soup)
         outcome, note, *made = _apply(soup, f)
         changes = made[0] if made else {}
-        v = patch_violations(before, str(soup))
-        if v:  # revert this rule's change
-            soup, outcome, note, changes = parse(before), "not_fixed", "; ".join(v), {}
+        if outcome == "fixed":  # only a fix changes the page, so only a fix needs serialising and checking
+            after = str(soup)
+            if v := patch_violations(before, after):  # revert this rule's change
+                soup, outcome, note, changes = parse(before), "not_fixed", "; ".join(v), {}
+            else:
+                before = after
         fixes.append(Fix(rule_id=f.rule_id, selector=f.selector, outcome=outcome, note=note, changes=changes))
     if not any(x.outcome == "fixed" for x in fixes):
         return html, fixes  # nothing applied: hand back the original bytes, not a re-serialisation

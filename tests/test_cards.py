@@ -16,7 +16,7 @@ from gate.report import build_report
 URL = "https://e.com/a?b=1"
 TESTED = ["1.1.1"]
 F = Finding(rule_id="image-alt", source="axe", status="fail", impact="serious", selector="img", wcag=["1.1.1"], message="m")
-REPORT = build_report("j", URL, [F], TESTED)
+REPORT = build_report("j", URL, [F], TESTED).copy(update={"fixable": 1})
 FIXED = build_report("j", URL, [F], TESTED, fixes=[Fix(rule_id="image-alt", selector="img", outcome="fixed", note="")])
 
 
@@ -54,6 +54,7 @@ def test_offer_states_price_and_payment_terms():
     rows = {r["label"]: r["value"] for r in payload(offer_fix(REPORT, "0.5"))["summary_rows"]}
     assert rows["Patch price"] == "0.5 FET" and "before the job runs" in rows["Payment"] and "by hand" in rows["Payment"]
     assert rows["Not tested"].startswith(str(len(REPORT.untested)))
+    assert rows["Patch can cover"] == "up to 1 of 1 issues"
 
 
 def cards(msg):
@@ -105,7 +106,8 @@ async def test_scan_with_issues_offers_a_fix_alongside_the_full_report(on_chat, 
     assert REPORT.disclaimer in msg.text()  # the card never replaces the report
 
 
-@pytest.mark.parametrize("report", [build_report("j", URL, [], TESTED), build_report("j", URL, [], [], error="timeout")])
+@pytest.mark.parametrize("report", [build_report("j", URL, [], TESTED), build_report("j", URL, [], [], error="timeout"),
+                                    build_report("j", URL, [F], TESTED)])  # issues, but none a patch can cover
 async def test_nothing_to_sell_means_no_card(on_chat, monkeypatch, report):
     async def gate(*a): return report
     monkeypatch.setattr(lead_mod, "run_gate", gate)

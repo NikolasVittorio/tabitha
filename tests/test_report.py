@@ -138,7 +138,8 @@ def test_chat_leads_with_a_summary_and_groups_issues():
     def f(rule, impact, sel):
         return Finding(rule_id=rule, source="axe", status="fail", impact=impact, selector=sel, wcag=["1.4.3"], message=f"{rule} help.")
     fs = [f("minor-a", "minor", "#m")] + [f("many", "serious", f"#s{i}") for i in range(3)] + [f("worst", "critical", "#c")]
-    t = render_chat(build_report("j", "https://e.com", fs, ["1.4.3"]))
+    t = render_chat(build_report("j", "https://e.com", fs, ["1.4.3"]).copy(update={"fixable": 2}))
+    assert "for changes covering up to 2 of 5 issues (paid)" in t
     assert t.startswith("**5 automated accessibility issues found**\nPage: ` https://e.com `\n\n**Top issues**\n")
     assert t.index("**worst help**") < t.index("**many help**") < t.index("**minor-a help**")  # worst impact first
     assert "(many, 3 places, WCAG 1.4.3). Example: ` #s0 `" in t and "#s1" not in t  # one example per type
@@ -175,3 +176,6 @@ def test_long_lists_are_capped():
 def test_paid_changes_are_not_cut_short():
     fixes = [Fix(rule_id="r", selector=f"#c{n}", outcome="fixed", note="n", changes={"a": "b"}) for n in range(40)]
     assert "#c39" in render_chat(build_report("j", "u", [F("a")], ["1.4.3"], fixes=fixes))
+def test_no_paid_offer_when_a_patch_covers_nothing():
+    t = render_chat(build_report("j", "https://e.com", [F("a")], ["1.4.3"]))
+    assert "(paid)" not in t and "these need a person" in t

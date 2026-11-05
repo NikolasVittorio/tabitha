@@ -215,3 +215,22 @@ async def test_patch_shows_changed_lines_only(http_server):
     assert "aria-label=" in r.diff and 'lang="en"' in r.diff
     n = [l for l in r.diff.splitlines() if l[:1] in "+-" and not l.startswith(("+++", "---"))]
     assert len(n) <= 12, r.diff
+
+
+async def test_free_scan_quotes_what_a_patch_could_cover():
+    html = "<html><body><span>Buy</span><button></button><img src=a.png></body></html>"
+    findings = [Finding(rule_id=r, source="axe", status=st, impact=None, selector=sel, wcag=[], message="m")
+                for r, st, sel in (("button-name", "fail", "button"), ("image-alt", "needs_author", "img"), ("html-has-lang", "fail", "html"))]
+    async def scan(r): return ScanResult(job_id=r.job_id, findings=findings, tested=[], html=html, error=None)
+    async def walk(r): return WalkResult(job_id=r.job_id, findings=[], focus_path=[], tested=[], error=None)
+    r = await run_gate("j", "https://e.com", scan, walk, None)
+    assert r.fixable == 2 and r.violation_count == 3 and r.fixes == []
+
+
+async def test_a_failed_quote_still_returns_the_scan(monkeypatch):
+    def boom(*a): raise RuntimeError("x")
+    monkeypatch.setattr("gate.pipeline.apply_fixes", boom)
+    async def scan(r): return ScanResult(job_id=r.job_id, findings=[_f("a", "axe")], tested=[], html="<p>", error=None)
+    async def walk(r): return WalkResult(job_id=r.job_id, findings=[], focus_path=[], tested=[], error=None)
+    r = await run_gate("j", "https://e.com", scan, walk, None)
+    assert r.fixable == 0 and r.violation_count == 1 and r.error is None
