@@ -96,6 +96,12 @@ def _next(r: Report) -> str:
     return f"**Next:** have a person test what automated checks cannot, and send {_code('recheck ' + r.url)} after changes."
 
 
+def fixed_count(r: Report) -> int:
+    """Only fixed pairs that are counted violations, so subtracting it from violation_count stays correct."""
+    return len({(x.rule_id, x.selector) for x in r.fixes if x.outcome == "fixed"}
+               & {(f.rule_id, f.selector) for f in r.findings if f.status in ("fail", "needs_author")})
+
+
 def render_chat(r: Report, max_diff_chars: int = 8000, agents: dict[str, str] | None = None) -> str:
     if r.error:
         return f"Error: {_code(r.error)}\n{USAGE}"
@@ -104,9 +110,7 @@ def render_chat(r: Report, max_diff_chars: int = 8000, agents: dict[str, str] | 
             else "**No automated issues detected**")
     out = [f"{head}\nPage: {_code(r.url)}"]
     if r.fixes:
-        # only fixed pairs that are counted violations, so the subtraction matches violation_count
-        k = len({(x.rule_id, x.selector) for x in r.fixes if x.outcome == "fixed"}
-                & {(f.rule_id, f.selector) for f in fails})
+        k = fixed_count(r)
         out.append(f"Automated issues {r.violation_count} \u2192 {r.violation_count - k} after fixes ({k} fixed and "
                    "re-checked on the page source with scripts off)" if k else
                    "No automated issue was fixed; see fix outcomes below")

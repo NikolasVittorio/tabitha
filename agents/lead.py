@@ -19,6 +19,7 @@ from uagents_core.identity import Identity
 
 from agents.rpc import Pending
 from agents.subagents import make_fixer, make_scanner, make_walker
+from gate.cards import NOT_NOW, NOT_NOW_REPLY, after_fix, intake, offer_fix
 from gate.history import History
 from gate.chat import FIX_URL, PAY_FIX, QUOTA_REPLY, USAGE, Fix, Reply, parse_chat
 from gate.models import A11yCheckRequest, FixResult, Report, ScanResult, WalkResult
@@ -126,8 +127,10 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
         async with sem:
             return with_delta(sender, await run_job(ctx, str(uuid4()), url, False))
 
-    async def say(ctx: Context, to: str, text: str, end: bool = True):
-        await ctx.send(to, ChatMessage(content=[TextContent(text=text)] + ([EndSessionContent()] if end else [])))
+    async def say(ctx: Context, to: str, text: str, end: bool = True, card=None):
+        """A card waits for the user's choice, so a message with one never ends the session."""
+        tail = [card] if card else [EndSessionContent()] if end else []
+        await ctx.send(to, ChatMessage(content=[TextContent(text=text)] + tail))
 
     async def close(ctx: Context, job_id: str, why: str):
         """The only place a reference closes unpaid: CancelPayment + end of chat session, once."""
@@ -148,6 +151,8 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
     @chat.on_message(ChatMessage)
     async def on_chat(ctx: Context, sender: str, msg: ChatMessage):
         await ctx.send(sender, ChatAcknowledgement(acknowledged_msg_id=msg.msg_id))
+        if NOT_NOW in msg.text():  # before parsing: the planner's prose may repeat the page URL
+            return await say(ctx, sender, NOT_NOW_REPLY)
         today = datetime.now(timezone.utc).date()
         action = parse_chat(msg.text(), sender, quota, today)
         if isinstance(action, Fix):  # never runs from chat alone: real FET here, or USDC over x402
@@ -173,13 +178,12 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
             if action.text != USAGE:
                 return await say(ctx, sender, action.text)
             ok = talks.allow(sender, today) and all_talks.allow("all", today)
-            return await say(ctx, sender, await answer(msg.text(), PROFILE.read_text()) if ok else FALLBACK)
+            return await say(ctx, sender, await answer(msg.text(), PROFILE.read_text()) if ok else FALLBACK, card=intake())
         r = await admit(ctx, sender, today, action.url, charge=False)  # parse_chat already charged the scan
         if isinstance(r, str):
-            text = QUOTA_REPLY if r == "quota_exceeded" else BUSY
-        else:
-            text = render_chat(r, agents=sub_addrs)
-        await say(ctx, sender, text)
+            return await say(ctx, sender, QUOTA_REPLY if r == "quota_exceeded" else BUSY)
+        offer = offer_fix(r, fet.price) if fet and r.violation_count and not r.error else None
+        await say(ctx, sender, render_chat(r, agents=sub_addrs), card=offer)
 
     @check_proto.on_message(A11yCheckRequest, replies=Report)
     async def on_check(ctx: Context, sender: str, msg: A11yCheckRequest):
@@ -245,7 +249,7 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
             ctx.logger.warning(f"REFUND_DUE job {job_id} tx={tx_hash} reason={why}")
             text += (f"\n\nYou paid, but no fix was confirmed ({why}). "
                      f"For a refund, send tx {tx_hash} to {fet.refund_contact}.")
-        await say(ctx, sender, text)
+        await say(ctx, sender, text, card=None if why else after_fix(r))
         await ctx.send(sender, CompletePayment(transaction_id=tx_hash))  # only after the report is delivered
 
     @pay.on_message(RejectPayment)
