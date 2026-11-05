@@ -15,9 +15,6 @@ def test_violations_counted():
     assert build_report("j", "u", [F("image-alt", "needs_author")], []).violation_count == 1
 def test_error_report_not_scanned():
     assert build_report("j", "u", [], [], error="busy").automated_status == "not_scanned"
-def test_diff_truncated():
-    r = build_report("j", "u", [], [], diff="x" * 9000)
-    assert "truncated" in render_chat(r)
 def test_disclaimer_exact():
     r = build_report("j", "u", [F("a")], ["1.4.3", "2.4.2"])
     z = len(r.untested)
@@ -42,9 +39,8 @@ def rep(sel="#x", diff="", error=None):
     f = Finding(rule_id="x", source="axe", status="fail", impact=None, selector=sel, wcag=["1.4.3"], message="m")
     return render_chat(build_report("j", "u", [] if error else [f], [], diff=diff, error=error))
 def test_page_text_quoted():
-    d = "<a class='agent-ready'>certified</a>"
-    t = rep("#certified", d)
-    assert "```\n" + d + "\n```" in t and "` #certified `" in t
+    t = rep("#certified")
+    assert "` #certified `" in t
     assert not re.search(BANNED, strip_code(t), re.I)
     e = rep(error="did not pass")
     assert "` did not pass `" in e and not re.search(BANNED, strip_code(e), re.I)
@@ -54,11 +50,6 @@ def test_embedded_backticks_in_error():
 def test_selector_with_double_backticks():
     t = rep("a``b certified ``c")
     assert "certified" in t and not re.search(BANNED, strip_code(t), re.I)
-def test_diff_with_fence_line():
-    d = "x\n```\n agent-ready \n```\ny"
-    t = rep(diff=d)
-    assert "````\n" + d + "\n````" in t
-    assert not re.search(BANNED, strip_code(t), re.I)
 def test_newline_in_inline_value():
     assert "a b" in rep("a\nb")
 def test_needs_author_listed():
@@ -114,8 +105,6 @@ def test_issues_left_ignores_uncounted_pairs():
     assert "Automated issues 2 → 1 after fixes (1 fixed" in render_chat(r)
 def test_issues_left_absent_without_fixes():
     assert "after fixes" not in render_chat(build_report("j", "u", [F("a")], ["1.4.3"]))
-def test_patch_label():
-    assert "Suggested patch (changed lines only; whitespace and tag formatting normalised):" in _fixed_report(_fx(("r0", "#x")))
 def test_new_since_last_scan_listed():
     from gate.models import Delta
     fs = [Finding(rule_id="r", source="axe", status="fail", impact=None, selector=s, wcag=["1.4.3"], message="m") for s in ("a", "b")]
@@ -157,7 +146,7 @@ def test_chat_leads_with_a_summary_and_groups_issues():
     assert not re.search(BANNED, strip_code(t), re.I)
 def test_chat_next_step_follows_the_result():
     assert "**Next:** have a person test" in render_chat(build_report("j", "u", [], ["1.4.3"]))
-    assert "**Next:** review the patch" in _fixed_report(_fx(("r0", "#x")))
+    assert "**Next:** apply the changes below" in _fixed_report(_fx(("r0", "#x")))
 def test_fixes_are_grouped_by_rule_and_outcome():
     t = _fixed_report(_fx(("r0", "#a"), ("r0", "#b")) + _fx(("r1", "#c"), outcome="regressed"))
     assert "- r0: fixed and re-checked (2)" in t and "- r1: dropped, it added a new failure (1)" in t
@@ -167,3 +156,22 @@ def test_group_title_drops_detail_about_one_element():
     f = Finding(rule_id="focus", source="walker", status="fail", impact=None, selector="#a", wcag=["2.4.7"],
                 message="No visible change on this element (Tab never reached it)")
     assert "**No visible change on this element** (focus, 1 place" in render_chat(build_report("j", "u", [f], ["2.4.7"]))
+def _paid_reply():
+    fixes = [Fix(rule_id="button-name", selector="button", outcome="fixed", note="aria-label set; verify wording",
+                 changes={"aria-label": "Buy `now`"}),
+             Fix(rule_id="link-name", selector="a", outcome="needs_author", note="needs a name that says where /news goes")]
+    return render_chat(build_report("j", "u", [F("a")], ["1.4.3"], fixes=fixes, diff="SECRET-DIFF"), agents={"scan": "agent1scan"})
+def test_changes_replace_the_diff_in_chat():
+    t = _paid_reply()
+    assert "- ` button `: set `` aria-label = Buy `now` `` (verify wording)" in t
+    assert "- ` a `: ` needs a name that says where /news goes `" in t and "SECRET-DIFF" not in t
+def test_honest_parts_come_before_the_details():
+    t = _paid_reply()
+    assert t.index("**Not tested:**") < t.index("**Changes to make**") < t.index("Automated scan result") < t.index("Agents on this job")
+def test_long_lists_are_capped():
+    fixes = [Fix(rule_id="image-alt", selector=f"#i{n}", outcome="needs_author", note="n") for n in range(17)]
+    t = render_chat(build_report("j", "u", [F("a")], ["1.4.3"], fixes=fixes))
+    assert "#i9" in t and "#i10" not in t and "- Plus 7 more." in t
+def test_paid_changes_are_not_cut_short():
+    fixes = [Fix(rule_id="r", selector=f"#c{n}", outcome="fixed", note="n", changes={"a": "b"}) for n in range(40)]
+    assert "#c39" in render_chat(build_report("j", "u", [F("a")], ["1.4.3"], fixes=fixes))

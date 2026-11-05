@@ -31,8 +31,8 @@ def _adjacent_text(el) -> str:
     return ""
 
 
-def _apply(soup: BeautifulSoup, f: Finding) -> tuple[str, str]:
-    """Mutate soup for one finding; return (outcome, note)."""
+def _apply(soup: BeautifulSoup, f: Finding) -> tuple:
+    """Mutate soup for one finding; return (outcome, note), plus the changes made when fixed."""
     r = f.rule_id
     if r == "image-alt":
         return "needs_author", "alt text needs a human description"
@@ -48,7 +48,7 @@ def _apply(soup: BeautifulSoup, f: Finding) -> tuple[str, str]:
         return "not_fixed", "selector matched nothing"
     if r == "html-has-lang":
         el["lang"] = "en"
-        return "fixed", 'set lang="en"; verify the page language'
+        return "fixed", 'set lang="en"; verify the page language', {"lang": "en"}
     if r == "document-title":
         head, h1 = soup.find("head"), soup.find("h1")
         if head is None:  # ponytail: adding <head> would break the allowlist's tag-sequence rule
@@ -57,30 +57,31 @@ def _apply(soup: BeautifulSoup, f: Finding) -> tuple[str, str]:
         tag = soup.new_tag("title")
         tag.string = t
         head.append(tag)
-        return "fixed", "title inserted; verify wording"
+        return "fixed", "title inserted; verify wording", {"<title>": t}
     if r == "color-contrast":
         if unparseable_style(el.get("style")):
             return "not_fixed", "unparseable inline style"
         d = f.data
         try:
             target = float(str(d["expectedContrastRatio"]).split(":")[0])
-            _set_color(el, fix_fg(d["fgColor"], d["bgColor"], target))
+            color = fix_fg(d["fgColor"], d["bgColor"], target)
+            _set_color(el, color)
         except (KeyError, ValueError):
             return "not_fixed", "missing or unparseable contrast data"
-        return "fixed", "foreground colour adjusted"
+        return "fixed", "foreground colour adjusted", {"color": color}
     if r == "duplicate-id":
         taken = {e["id"] for e in soup.find_all(id=True)}
         n = 2
         while f"{el.get('id', '')}-{n}" in taken:
             n += 1
         el["id"] = f"{el.get('id', '')}-{n}"
-        return "fixed", "id renamed; update references"
+        return "fixed", "id renamed; update references", {"id": el["id"]}
     name = next((str(el.get(k)).strip() for k in ("placeholder", "title") if str(el.get(k) or "").strip()), "") or _adjacent_text(el)
     if not name:
         href = str(el.get("href") or "")
         return "needs_author", f"needs a name that says where {href} goes" if href else "needs a name that says what this control does"
     el["aria-label"] = name
-    return "fixed", "aria-label set; verify wording"
+    return "fixed", "aria-label set; verify wording", {"aria-label": name}
 
 
 def fix(html: str, findings: list[Finding], rules: set[str] | None = None) -> tuple[str, list[Fix]]:
@@ -92,11 +93,12 @@ def fix(html: str, findings: list[Finding], rules: set[str] | None = None) -> tu
     fixes = []
     for f in todo:
         before = str(soup)
-        outcome, note = _apply(soup, f)
+        outcome, note, *made = _apply(soup, f)
+        changes = made[0] if made else {}
         v = patch_violations(before, str(soup))
         if v:  # revert this rule's change
-            soup, outcome, note = parse(before), "not_fixed", "; ".join(v)
-        fixes.append(Fix(rule_id=f.rule_id, selector=f.selector, outcome=outcome, note=note))
+            soup, outcome, note, changes = parse(before), "not_fixed", "; ".join(v), {}
+        fixes.append(Fix(rule_id=f.rule_id, selector=f.selector, outcome=outcome, note=note, changes=changes))
     if not any(x.outcome == "fixed" for x in fixes):
         return html, fixes  # nothing applied: hand back the original bytes, not a re-serialisation
     return str(soup), fixes

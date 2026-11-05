@@ -54,6 +54,7 @@ class Fix(Model):
     selector: str
     outcome: Literal["fixed", "not_fixed", "regressed", "needs_author"]
     note: str
+    changes: dict[str, str] = {}  # what a person sets on this element, whatever stack built the page
 
 
 class FixResult(Model):

@@ -88,12 +88,45 @@ def _top(fails: list) -> list[str]:
 
 
 def _next(r: Report) -> str:
+    if any(x.outcome == "fixed" for x in r.fixes):
+        return f"**Next:** apply the changes below and check their wording, then send {_code('recheck ' + r.url)}."
     if r.fixes:
-        return f"**Next:** review the patch, apply it, then send {_code('recheck ' + r.url)}."
+        return f"**Next:** work through the list below, then send {_code('recheck ' + r.url)}."
     if r.violation_count:
         return (f"**Next:** send {_code('fix ' + r.url)} for a suggested patch (paid), "
                 f"or {_code('recheck ' + r.url)} after you change the page.")
     return f"**Next:** have a person test what automated checks cannot, and send {_code('recheck ' + r.url)} after changes."
+
+
+CHANGES_MAX = 40  # a buyer paid for these, so the cap is only there to keep a huge page inside one chat message
+NEEDS_YOU_MAX = 10
+
+
+def _listed(title: str, lines: list[str], limit: int) -> str:
+    more = [f"- Plus {len(lines) - limit} more. Send `recheck` after these to see the rest."] if len(lines) > limit else []
+    return "\n".join([title] + lines[:limit] + more)
+
+
+def _change(x) -> str:
+    made = ", ".join(_code(f"{k} = {v}") for k, v in x.changes.items()) or "see the patch"
+    check = f" ({x.note.split('; ', 1)[1]})" if "; " in x.note else ""
+    return f"- {_code(x.selector[:SELECTOR_CHARS])}: set {made}{check}"
+
+
+def _fix_sections(r: Report) -> list[str]:
+    fixed = [x for x in r.fixes if x.outcome == "fixed"]
+    author = [x for x in r.fixes if x.outcome == "needs_author"]
+    groups: dict[tuple[str, str], int] = {}
+    for x in r.fixes:
+        groups[(x.rule_id, x.outcome)] = groups.get((x.rule_id, x.outcome), 0) + 1
+    out = ["Fix outcomes are checked on the page source with scripts off; "
+           "scripts on the live page may change the result."]
+    if fixed:
+        out.append(_listed("**Changes to make**", [_change(x) for x in fixed], CHANGES_MAX))
+    if author:
+        out.append(_listed("**Needs you**", [f"- {_code(x.selector[:SELECTOR_CHARS])}: {_code(x.note)}" for x in author], NEEDS_YOU_MAX))
+    out.append("\n".join(["**Fixes**"] + [f"- {rule}: {OUTCOMES[o]} ({c})" for (rule, o), c in groups.items()]))
+    return out
 
 
 def fixed_count(r: Report) -> int:
@@ -102,7 +135,7 @@ def fixed_count(r: Report) -> int:
                & {(f.rule_id, f.selector) for f in r.findings if f.status in ("fail", "needs_author")})
 
 
-def render_chat(r: Report, max_diff_chars: int = 8000, agents: dict[str, str] | None = None) -> str:
+def render_chat(r: Report, agents: dict[str, str] | None = None) -> str:
     if r.error:
         return f"Error: {_code(r.error)}\n{USAGE}"
     fails = [f for f in r.findings if f.status in ("fail", "needs_author")]
@@ -130,19 +163,10 @@ def render_chat(r: Report, max_diff_chars: int = 8000, agents: dict[str, str] | 
     out.append(_next(r))
     if r.note:
         out.append(f"Note: {r.note}")
+    out.append(f"**Not tested:** {len(r.untested)} criteria ({', '.join(r.untested)})")
     if r.fixes:
-        groups: dict[tuple[str, str], int] = {}
-        for x in r.fixes:
-            groups[(x.rule_id, x.outcome)] = groups.get((x.rule_id, x.outcome), 0) + 1
-        out.append("Fix outcomes are checked on the page source with scripts off; "
-                   "scripts on the live page may change the result.")
-        out.append("\n".join(["**Fixes**"] + [f"- {rule}: {OUTCOMES[o]} ({c})" for (rule, o), c in groups.items()]))
-    if r.diff:
-        d = r.diff[:max_diff_chars]
-        t = _ticks(d, 3)
-        out.append(f"Suggested patch (changed lines only; whitespace and tag formatting normalised):\n{t}\n{d}\n{t}")
-        if len(r.diff) > max_diff_chars:
-            out.append(f"(diff truncated at {max_diff_chars} characters)")
+        out += _fix_sections(r)
+    out.append(r.disclaimer)
     if agents:
         out.append("\n".join(_crew(r, agents)))
     if r.tree_before and r.tree_after:
@@ -151,8 +175,6 @@ def render_chat(r: Report, max_diff_chars: int = 8000, agents: dict[str, str] | 
     elif r.tree_before:
         out.append("What an AI agent sees (accessibility tree):")
         out += _tree("", r.tree_before)
-    out.append(f"**Not tested:** {len(r.untested)} criteria ({', '.join(r.untested)})")
-    out.append(r.disclaimer)
     if r.receipt:
         p = r.receipt.payload_json
         t = _ticks(p, 3)

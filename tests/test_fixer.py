@@ -57,3 +57,10 @@ def test_form_field_neighbour_is_not_a_label():
     html = '<html><body>Title: <input type="radio" value="mr"> Mr. <input type="radio" id="mrs" value="mrs"> Mrs.</body></html>'
     out, x = label(html, "label", "#mrs")
     assert "aria-label" not in out and x.outcome == "needs_author"
+def test_changes_say_what_to_set():
+    html = '<html><head></head><body><h1>Shop</h1><span>Buy</span><button></button></body></html>'
+    _, fixes = fix(html, [f("html-has-lang"), f("button-name", "button"), f("document-title")])
+    assert [x.changes for x in fixes] == [{"lang": "en"}, {"aria-label": "Buy"}, {"<title>": "Shop"}]
+def test_reverted_change_lists_nothing():
+    _, fixes = fix('<html><body><i id="a"></i><b id="a"></b></body></html>', [f("duplicate-id", "b")])
+    assert fixes[0].outcome == "not_fixed" and fixes[0].changes == {}
