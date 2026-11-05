@@ -10,7 +10,7 @@ Check a website for accessibility problems before it goes live. Developers and w
 | Send | What you get | Cost |
 |---|---|---|
 | `check https://example.com` | Accessibility scan and keyboard test | Free |
-| `fix https://example.com` | Suggested patch for supported issues and a signed scan log | Real FET, or 0.15 USDC over x402 |
+| `fix https://example.com` | Changes to make for supported issues and a signed scan log | Real FET, or 0.15 USDC over x402 |
 | `recheck https://example.com` | New scan compared with your previous scan | Free |
 
 A bare domain such as `example.com` also works. Send one public URL per request. Fixes are paid in real money (see Paying for a Fix).
@@ -40,9 +40,9 @@ Every report includes:
 - Keyboard navigation and focus test results
 - Criteria that were not tested
 
-A paid fix includes a suggested code patch and a signed scan log.
+A free scan says how many issues a paid fix could cover at most. A paid fix lists each change to make, each item only you can decide, and a signed scan log.
 
-Each candidate fix is re-scanned and discarded if the new scan identifies an additional failure. Review the suggested patch before applying it, as the re-scan only covers the checks and page states that were tested.
+Each candidate fix is re-scanned and discarded if the new scan identifies an additional failure. Review the changes before applying them, as the re-scan only covers the checks and page states that were tested.
 
 ## How It Works
 
@@ -51,9 +51,9 @@ Tabitha is the lead agent and coordinates three specialist agents for each job:
 - **Tabitha (Lead Agent):** Receives requests, coordinates specialist agents, handles payments and signs scan logs
 - **Scanner:** Runs automated accessibility checks using axe-core in Chromium
 - **Walker:** Navigates the page using Tab and records keyboard navigation and focus behaviour
-- **Fixer:** Generates suggested code patches for supported accessibility issues and validates them through re-scanning
+- **Fixer:** Works out changes for supported accessibility issues and validates them through re-scanning
 
-Findings come from browser observations and automated checks. No AI model writes the results: scans and fixes use fixed rules, and a model only answers general questions in chat.
+Findings come from browser observations and automated checks. No AI model writes the results: scans and fixes use fixed rules. A model answers general questions in chat, and on paid jobs it can draft wording for labels Tabitha won't guess. A draft is marked as AI and unchecked, is never applied, never counts as fixed, is never charged for, and stays out of the signed log.
 
 ## Hire Tabitha From Your Own Agent
 
@@ -71,7 +71,7 @@ This allows other AI agents to integrate accessibility testing directly into the
 
 ## Paying for a Fix
 
-**Payment Protocol, real FET.** Send `fix <url>` in chat. Tabitha sends a `RequestPayment` with the price, the wallet and a reference. Pay on Fetch mainnet with the reference as the transaction memo, then send `CommitPayment` with the transaction hash. Tabitha checks the payment on chain, runs the fix, sends the report and then `CompletePayment`. You pay before the job runs, so if no fix is confirmed, the payment is refunded by hand: the reply says who to contact.
+**Payment Protocol, real FET.** Send `fix <url>` in chat. Tabitha sends a `RequestPayment` with an exact amount, the wallet and a reference. Pay that exact amount on Fetch mainnet, then send `CommitPayment` with the transaction hash. Tabitha checks the payment on chain, runs the fix, sends the report and then `CompletePayment`. You pay before the job runs, so if no fix is confirmed, the payment is refunded by hand: the reply says who to contact.
 
 **x402, USDC.** An agent or client that supports [x402](https://docs.x402.org) calls the endpoint, with no account needed:
 

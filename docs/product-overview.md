@@ -2,7 +2,7 @@
 
 This is a briefing for anyone (person or agent session) thinking about new features. It covers what the product does today, why it's built the way it is, and the rules any new feature has to respect.
 
-State as of 4 Nov 2026: branch `feat/repeat-caller` (the repeat-caller wave, on top of main), 199 tests passing, not yet deployed. The hackathon (Fetch.ai "Stranger Builds") has a feature freeze on **Fri 6 Nov** and submission on **Mon 9 Nov, 13:59 AEDT**.
+State as of 5 Nov 2026: 282 tests passing. The hackathon (Fetch.ai "Stranger Builds") has a feature freeze on **Fri 6 Nov** and submission on **Mon 9 Nov, 13:59 AEDT**.
 
 ---
 
@@ -31,12 +31,12 @@ A caller sends one public URL. The agent opens it in a real browser and:
    - `duplicate-button-name` (2.4.6): buttons share an accessible name.
 2. **Walks it like a keyboard user.** It presses Tab up to 50 times and records each focus stop, and it finds keyboard traps. It checks that the focus indicator can be seen on every stop, within a 10 s budget for the whole walk; if the budget runs out, `focus-visibility-partial` says how many stops were checked. It checks whether a focused element is entirely covered by other content or off-screen (`focus-obscured`, 2.4.11, needs review). It also checks that a modal dialog keeps Tab inside it and that Escape closes it and returns focus to its opener. A modal that Tab escapes (`modal-focus-escape`) is a **fail** under 2.4.3. Obscured focus, focus return and elements Tab never reaches are reported as "needs review". Focus order (2.4.3) is tested only for modal dialogs; there is no general focus-order check.
 3. **Shows the accessibility tree** ("what screen readers and AI agents see"), using a Playwright ARIA snapshot.
-4. **Fixes the safe issues** (paid `fix` only). The fixes are rule-based, with no AI model involved. Each one is **re-checked by re-scanning the patched page**, and any fix that makes things worse is dropped.
+4. **Fixes the safe issues** (paid `fix` only). The fixes are rule-based, with no AI model involved. A free scan quotes how many issues a patch could cover at most. Each one is **re-checked by re-scanning the patched page**, and any fix that makes things worse is dropped.
 5. **Reports honestly:**
    - automated issues found
    - "Automated issues N → M after fixes"
    - on a repeat scan of the same URL, the counts since the last scan plus up to 5 findings under "New since your last scan:". Typed callers get `Delta.new_at`, the indices into `findings` of the new ones. These are new automated issues (`fail` and `needs_author`); needs-review findings are not compared. If focus visibility was only partly checked on either scan (time limit), `Delta.partial` is set and the reply adds a caveat line
-   - a patch showing only the changed lines
+   - the changes to make, one per element, and what still needs a person (typed and x402 callers also get the diff)
    - the criteria it did **not** test
    - a fixed disclaimer
 6. **Signs a log** of exactly what was tested. The ed25519 public key is in the README. A signed log is "valid for this exact input at this time only".
@@ -62,7 +62,7 @@ On error codes: typed replies carry `bad_request`, `quota_exceeded`, `busy`, `pa
 | `html-has-lang` | Adds `lang="en"` |
 | `document-title` | Adds a `<title>` taken from the first `h1`, or else the hostname |
 | `color-contrast` | Adjusts text lightness to reach 4.5:1 (3:1 for large text) |
-| `button-name`, `link-name`, `label`, `select-name` | Adds an `aria-label` taken from nearby text, placeholder or title, marked "verify wording" |
+| `button-name`, `link-name`, `label`, `select-name` | Adds an `aria-label` from `placeholder`, `title`, or for a button or link the text right beside it (up to 40 characters), marked "verify wording". Anything else is `needs_author`, because a wider guess named four nav links "Today:" on a real page |
 | `image-alt` | **No fix.** Marked `needs_author`, because only the author knows what the image means |
 
 **The patch allowlist (a hard rule).** A fix may only add or modify:
@@ -102,6 +102,7 @@ The helper agents only accept messages from the lead's address.
 **External calls:**
 - the target page and its subresources, through an SSRF guard on every request and redirect
 - Agentverse, for the mailbox
+- the ASI:One API, for chat answers and label drafts
 - the Fetch mainnet chain, to look up payments
 
 Nothing else. In production an nftables egress firewall blocks private, metadata and NAT64 ranges (this is the DNS-rebinding defence).
@@ -114,20 +115,20 @@ Nothing else. In production an nftables egress firewall blocks private, metadata
 - BeautifulSoup
 - `cryptography` (ed25519)
 - `cosmpy`
-- Docker on Fly.io
+- Docker on a Google Cloud VM
 
 **Code map:**
 - `gate/`: pure logic. Scanner, walker, fixer, allowlist, contrast, pipeline (fix → rescan → keep or drop), report, receipt, payment, x402 endpoint, chat parsing, quota, history, WCAG table.
 - `agents/`: the uAgents glue. `lead.py`, `subagents.py`, `rpc.py`, `demo_buyer.py` (pays real FET) and `x402_buyer.py` (test USDC).
 - `deploy/`: the entrypoint (firewall plus privilege drop) and `egress-check.sh`.
 - `docs/`: this file, `demo-script.md`, `outreach.md`, and the specs and plans under `superpowers/`.
-- `tests/`: 199 tests.
+- `tests/`: 282 tests.
 
 ## Rules any new feature must keep
 
 These came from the design council and the review rounds, and they're the core of the pitch.
 
-1. **No AI model in the results.** Everything reported is measured, which is why the signed log is trustworthy and why this isn't "a thin GPT wrapper". A model's opinion could only ever appear as a separately labelled *suggestion*. The ASI:One model only answers chat messages that have no URL: it can't start a job or see a report.
+1. **No AI model in the results.** Everything reported is measured, which is why the signed log is trustworthy and why this isn't "a thin GPT wrapper". A model's opinion can only appear as a separately labelled *suggestion*. The ASI:One model answers chat messages that have no URL, and on paid jobs drafts wording for labels left to the author. It can't start a job, see a report, change the page, count as a fix, or enter the signed log.
 2. **Never overclaim.**
    - Banned in all output and copy: "pass", "compliant", "certified", "agent-ready".
    - `automated_status` must be one of `violations_found`, `no_automated_violations_detected` or `not_scanned`.
@@ -139,9 +140,9 @@ These came from the design council and the review rounds, and they're the core o
    - 30 s per page and 2 MB of HTML
    - a new browser context per job, with downloads blocked
    - SSRF checks after DNS resolution
-5. **Nothing is stored** except in-memory hashes for recheck. Chat messages with no URL go to the ASI:One API so a model can answer them. Logs hold only rule ids, hashes and job ids.
+5. **Nothing is stored** except in-memory hashes for recheck. Chat messages with no URL go to the ASI:One API so a model can answer them, and paid jobs send it short snippets of the public page for label drafts. Logs hold only rule ids, hashes and job ids.
 6. **Fixes stay inside the allowlist**, and each one is re-checked and kept only if nothing gets worse.
-7. **Fixes are paid in real money.** Payment Protocol: real FET to the owner's wallet, the tx memo must equal the job id, a transaction can't be reused, and refunds are by hand. x402: real USDC settles only after a confirmed fix, and a failed settlement withholds the report; it was tested end to end with test USDC.
+7. **Fixes are paid in real money.** Payment Protocol: real FET to the owner's wallet, a transaction binds to a job by an exact unique amount or a memo equal to the job id, a transaction can't be reused, and refunds are by hand. x402: real USDC settles only after a confirmed fix, and a failed settlement withholds the report; it was tested end to end with test USDC.
 
 ## Known limits and deferred items
 
@@ -177,7 +178,7 @@ These came from the design council and the review rounds, and they're the core o
 - **Rejected:**
   - `llms.txt` / `ai.txt` generation (it's SEO, needs crawling and a model)
   - crawling whole sites
-  - AI-written alt text
+  - AI-written alt text for images (label wording is allowed as a marked suggestion)
 
 **What the council said moves the score:** logged **external callers**, meaning other agents actually calling it. The median score is about 74 with no external callers; with 2 or more logged external callers the ceiling is 83–85. The typed protocol and recheck exist for this. Features that make builder agents call it *repeatedly* are worth more than features that make one report nicer.
 
