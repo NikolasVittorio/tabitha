@@ -81,7 +81,7 @@ expect_reachable() {  # expect_reachable <probe args...>
   esac
 }
 
-if nft list chain inet a11y_egress output 2>/dev/null | grep -Eq "meta skuid (\"?$APP_USER\"?|$APP_UID) goto app_out"; then
+if nft list chain inet a11y_egress output 2>/dev/null | grep -E "meta skuid (\"?$APP_USER\"?|$APP_UID) goto app_out" >/dev/null; then
   pass "output chain sends the app uid to app_out"
 else
   fail "output chain missing the app uid goto app_out rule"

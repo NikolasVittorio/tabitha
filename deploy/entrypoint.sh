@@ -55,7 +55,7 @@ EOF
 
 # Fail closed: refuse to start unless the app uid is routed into app_out and app_out ends in drop.
 # (nft may print the uid as a name, so accept either form.)
-nft list chain inet a11y_egress output | grep -Eq "meta skuid (\"?$APP_USER\"?|$APP_UID) goto app_out"
+nft list chain inet a11y_egress output | grep -E "meta skuid (\"?$APP_USER\"?|$APP_UID) goto app_out" >/dev/null
 nft list chain inet a11y_egress app_out | grep -v '^\s*}' | grep -v '^\s*$' | tail -n 1 | grep -qx '\s*drop'
 
 cd /app

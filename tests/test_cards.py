@@ -112,7 +112,7 @@ async def test_nothing_to_sell_means_no_card(on_chat, monkeypatch, report):
     async def gate(*a): return report
     monkeypatch.setattr(lead_mod, "run_gate", gate)
     _, msg = await say_to(on_chat(), f"check {URL}")
-    assert not cards(msg) and not ends(msg)
+    assert cards(msg)[0].metadata["card_kind"] == "form" and not ends(msg)  # nothing to sell: only "check another page"
 
 
 async def test_no_card_offer_when_fet_is_off(on_chat, monkeypatch):
@@ -120,7 +120,7 @@ async def test_no_card_offer_when_fet_is_off(on_chat, monkeypatch):
     monkeypatch.setattr(lead_mod, "run_gate", gate)
     monkeypatch.delenv("FET_PAY_TO")
     _, msg = await say_to(on_chat(), f"check {URL}")
-    assert not cards(msg)
+    assert cards(msg)[0].metadata["card_kind"] == "form"
 
 
 async def test_not_now_runs_nothing(on_chat, monkeypatch):

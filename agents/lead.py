@@ -132,12 +132,14 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
             return with_delta(sender, await run_job(ctx, str(uuid4()), url, False))
 
     async def say(ctx: Context, to: str, text: str, card=None):
-        """No EndSessionContent: on ASI:One a reply carrying it stalled the send, so nothing displayed, and sends
-        go out one at a time, so it held up every reply behind it too."""
+        """Every reply carries a card and no EndSessionContent. On ASI:One, replies with that marker and plain replies
+        beyond a line stalled the send and never displayed, and sends go out one at a time, so one stall held up the
+        rest. ponytail: measured behaviour, not documented; retest the bare reply if ASI:One changes."""
         started = time.monotonic()
-        status = await ctx.send(to, ChatMessage(content=[TextContent(text=text)] + ([card] if card else [])))
+        card = card or intake()
+        status = await ctx.send(to, ChatMessage(content=[TextContent(text=text), card]))
         ctx.logger.info(f"reply {getattr(status, 'status', 'unknown')} in {time.monotonic() - started:.1f}s "
-                        f"chars={len(text)} card={bool(card)}")
+                        f"chars={len(text)} card={card.metadata['card_kind']}")
 
     async def close(ctx: Context, job_id: str, why: str):
         """The only place a reference closes unpaid: CancelPayment + end of chat session, once."""
@@ -186,7 +188,7 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
             if action.text != USAGE:
                 return await say(ctx, sender, action.text)
             ok = talks.allow(sender, today) and all_talks.allow("all", today)
-            return await say(ctx, sender, await answer(msg.text(), PROFILE.read_text()) if ok else FALLBACK, card=intake())
+            return await say(ctx, sender, await answer(msg.text(), PROFILE.read_text()) if ok else FALLBACK)
         r = await admit(ctx, sender, today, action.url, charge=False)  # parse_chat already charged the scan
         if isinstance(r, str):
             return await say(ctx, sender, QUOTA_REPLY if r == "quota_exceeded" else BUSY)
