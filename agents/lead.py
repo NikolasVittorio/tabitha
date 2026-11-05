@@ -232,8 +232,8 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
 
         if not (p := await check()):
             return
-        # the hash and the metadata key names only, never tx contents or values
-        ctx.logger.info(f"job {job_id} tx={tx_hash} commit_metadata={sorted(msg.metadata or {})}")
+        # a fixed flag, never metadata: its keys and values are both buyer-controlled
+        ctx.logger.info(f"job {job_id} tx={tx_hash} buyer_wallet_sent={'buyer_fet_wallet' in (msg.metadata or {})}")
         try:
             tx = await asyncio.to_thread(get_tx, tx_hash)  # blocking query, off the event loop
         except Exception:

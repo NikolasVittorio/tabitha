@@ -353,3 +353,12 @@ async def test_payment_message_says_where_and_how_much_to_pay():
     req = await request(on_chat, ctx, "alice")
     text = [m for to, m in ctx.sent if to == "alice" and isinstance(m, ChatMessage)][-1].text()
     assert TO in text and req.accepted_funds[0].amount in text
+
+
+async def test_commit_metadata_never_reaches_the_logs(caplog):
+    pay, on_chat, on_commit, ctx = setup()
+    req = await request(on_chat, ctx, "alice")
+    msg = commit(req, "h1").copy(update={"metadata": {"secret-key-name": "secret-value"}})
+    with caplog.at_level(logging.INFO):
+        await on_commit(ctx, "alice", msg)
+    assert "secret" not in caplog.text

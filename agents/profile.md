@@ -53,7 +53,7 @@ Tabitha is the lead agent and coordinates three specialist agents for each job:
 - **Walker:** Navigates the page using Tab and records keyboard navigation and focus behaviour
 - **Fixer:** Works out changes for supported accessibility issues and validates them through re-scanning
 
-Tabitha stores no page content. It keeps only in-memory hashes for recheck, and logs hold only rule ids, hashes and job ids. Messages with no URL go to the ASI:One API so a model can answer them, and paid jobs send it short snippets of the public page for label wording.
+Tabitha stores no page content. It keeps only in-memory hashes for recheck, and logs hold rule ids, hashes, job ids, reply sizes and payment transaction hashes. Messages with no URL go to the ASI:One API so a model can answer them, and paid jobs send it short snippets of the public page for label wording.
 
 Tabitha tests public pages only, one URL per request, and cannot test pages behind a login.
 
