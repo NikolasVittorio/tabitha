@@ -15,6 +15,22 @@ def _set_color(el, color: str) -> None:
     el["style"] = ";".join(decl + [f"color:{color}"])
 
 
+ADJACENT_MAX = 40
+
+
+def _adjacent_text(el) -> str:
+    """The text right before a button or link in the same parent, like <span>Buy now</span><button>. Anything further
+    away is a guess, and so is any neighbour of a form field: a radio's own label comes after it, so the text before
+    the Mrs radio says Mr."""
+    if el.name not in ("button", "a"):
+        return ""
+    for s in el.previous_siblings:
+        t = (s if isinstance(s, str) else s.get_text(" ", strip=True)).strip()
+        if t:
+            return t if len(t) <= ADJACENT_MAX else ""
+    return ""
+
+
 def _apply(soup: BeautifulSoup, f: Finding) -> tuple[str, str]:
     """Mutate soup for one finding; return (outcome, note)."""
     r = f.rule_id
@@ -59,12 +75,10 @@ def _apply(soup: BeautifulSoup, f: Finding) -> tuple[str, str]:
             n += 1
         el["id"] = f"{el.get('id', '')}-{n}"
         return "fixed", "id renamed; update references"
-    name = next((str(el.get(k)).strip() for k in ("placeholder", "title", "name") if str(el.get(k) or "").strip()), "")
+    name = next((str(el.get(k)).strip() for k in ("placeholder", "title") if str(el.get(k) or "").strip()), "") or _adjacent_text(el)
     if not name:
-        prev = el.find_previous(string=lambda s: s.parent.name not in ("script", "style", "title") and s.strip())
-        name = prev.strip() if prev else ""
-    if not name:
-        return "needs_author", "no label source found"
+        href = str(el.get("href") or "")
+        return "needs_author", f"needs a name that says where {href} goes" if href else "needs a name that says what this control does"
     el["aria-label"] = name
     return "fixed", "aria-label set; verify wording"
 

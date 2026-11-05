@@ -30,3 +30,30 @@ def test_nothing_fixed_returns_original_string():
     html = '<html><body><img src=a.png></body></html>'
     out, _ = fix(html, [f("image-alt", "img")])
     assert out == html
+def label(html, rule, sel):
+    out, fixes = fix(html, [f(rule, sel)])
+    return out, fixes[0]
+def test_adjacent_text_names_the_control():
+    out, x = label('<html><body><span>Buy now</span><button><svg></svg></button></body></html>', "button-name", "button")
+    assert 'aria-label="Buy now"' in out and x.outcome == "fixed"
+def test_text_outside_the_parent_is_not_used():
+    out, x = label('<html><body><p>Total: $49.00</p><div><a href="https://x.com/a"><svg></svg></a></div></body></html>', "link-name", "a")
+    assert "aria-label" not in out and x.outcome == "needs_author" and x.note == "needs a name that says where https://x.com/a goes"
+def test_field_name_is_not_a_label():
+    out, x = label('<html><body><select name="cc"></select></body></html>', "select-name", "select")
+    assert "aria-label" not in out and x.outcome == "needs_author" and x.note == "needs a name that says what this control does"
+def test_placeholder_is_a_label():
+    out, x = label('<html><body><input placeholder="Search"></body></html>', "label", "input")
+    assert 'aria-label="Search"' in out and x.outcome == "fixed"
+def test_long_neighbour_text_is_not_a_label():
+    long = "x" * 41
+    out, x = label(f'<html><body><span>{long}</span><button></button></body></html>', "button-name", "button")
+    assert "aria-label" not in out and x.outcome == "needs_author"
+def test_forty_character_neighbour_is_a_label():
+    text = "x" * 40
+    out, x = label(f'<html><body><span>{text}</span><button></button></body></html>', "button-name", "button")
+    assert f'aria-label="{text}"' in out and x.outcome == "fixed"
+def test_form_field_neighbour_is_not_a_label():
+    html = '<html><body>Title: <input type="radio" value="mr"> Mr. <input type="radio" id="mrs" value="mrs"> Mrs.</body></html>'
+    out, x = label(html, "label", "#mrs")
+    assert "aria-label" not in out and x.outcome == "needs_author"
