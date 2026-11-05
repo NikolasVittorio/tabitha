@@ -174,17 +174,17 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
             pending_payments[job_id] = {"sender": sender, "url": action.url, "deadline": time.monotonic() + WINDOW,
                                         "until": until, "afet": afet, "timer": asyncio.create_task(expire(ctx, job_id))}
             ctx.logger.info(f"job {job_id} payment requested")
-            terms = (f"Accessibility changes + signed scan log, paid in real FET on Fetch mainnet. "
-                     f"Pay exactly {amount} FET, or set the tx memo to {job_id} (the reference).")
+            terms = (f"Accessibility changes + signed scan log, paid in real FET on Fetch mainnet. Pay exactly {amount} "
+                     f"FET to {fet.pay_to} within {WINDOW} s, or set the tx memo to {job_id} (the reference). If no fix "
+                     f"is confirmed, the payment is refunded by hand: send the tx hash to {fet.refund_contact}.")
             await ctx.send(sender, RequestPayment(
                 accepted_funds=[Funds(currency="FET", amount=amount, payment_method="fet_direct")],
                 recipient=fet.pay_to, deadline_seconds=WINDOW, reference=job_id, description=terms,
                 # ASI:One's payment card reads these keys, per Fetch's FET example; without them it fails the request
                 metadata={"x402_url": FIX_URL, "provider_agent_wallet": fet.pay_to, "fet_network": "mainnet",
                           "mainnet": "true", "content": terms}))
-            await say(ctx, sender, f"Payment requested: send exactly {amount} real FET to {fet.pay_to} on Fetch mainnet, "
-                                   f"within {WINDOW} s. The exact amount ties your payment to this job. If no fix is confirmed, the "
-                                   f"payment is refunded by hand: send the tx hash to {fet.refund_contact}.")
+            # ponytail: no chat text here. ASI:One's card needs the turn left on the request, as in Fetch's FET example.
+            # A caller with no Payment Protocol support gets nothing until the window closes; add text if that matters.
             return
         if isinstance(action, Reply):
             if action.text != USAGE:

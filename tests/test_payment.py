@@ -348,11 +348,12 @@ async def test_unbound_payment_flags_one_refund_and_runs_nothing(caplog):
     assert caplog.text.count("REFUND_DUE") == 1 and dispatched(ctx) == [] and not completed(ctx, "alice")
 
 
-async def test_payment_message_says_where_and_how_much_to_pay():
+async def test_payment_request_is_the_whole_turn_and_carries_the_terms():
     _, on_chat, _, ctx = setup()
     req = await request(on_chat, ctx, "alice")
-    text = [m for to, m in ctx.sent if to == "alice" and isinstance(m, ChatMessage)][-1].text()
-    assert TO in text and req.accepted_funds[0].amount in text
+    assert not [m for to, m in ctx.sent if to == "alice" and isinstance(m, ChatMessage)]  # text here hides ASI:One's card
+    assert req.metadata["content"] == req.description
+    assert all(x in req.description for x in (TO, req.accepted_funds[0].amount, "help@example.com"))
 
 
 async def test_commit_metadata_never_reaches_the_logs(caplog):
