@@ -23,7 +23,7 @@ from gate.cards import NOT_NOW, NOT_NOW_REPLY, after_fix, intake, offer_fix
 from gate.history import History
 from gate.chat import FIX_URL, PAY_FIX, QUOTA_REPLY, USAGE, Fix, Reply, parse_chat
 from gate.models import A11yCheckRequest, FixResult, Report, ScanResult, WalkResult
-from gate.payment import fet_settings, fetch_get_tx, verify_fet_payment
+from gate.payment import fet_settings, fet_text, fetch_get_tx, job_amount, verify_fet_payment
 from gate.pipeline import run_gate
 from gate.quota import Quota
 from gate.receipt import sign_receipt
@@ -40,6 +40,9 @@ TALKS_TOTAL = 500
 BUSY = "Busy — try again in a minute."
 NO_RECEIPT = "signed scan log unavailable (no signing key configured)"
 WINDOW = 300  # seconds a payment reference stays valid
+UNPAID = {"used": "this transaction was already used", "failed": "the transaction failed on chain",
+          "wrong_recipient": "the transaction didn't pay the requested address",
+          "low": "the transaction paid less than {price} FET"}
 PAID_JOB_LIMIT_S = 300  # a paid job must always end in a reply
 
 
@@ -77,6 +80,7 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
     # paid just before a restart is lost, and is refunded by hand. Persist if paid volume ever matters.
     pending_payments: dict[str, dict] = {}  # job_id -> {sender, url, deadline, timer}
     used_tx: set[str] = set()
+    flagged_tx: set[str] = set()  # unbound payments already flagged for a refund, so a resend can't flag twice
 
     def rpc(kind: str):
         async def call(ctx: Context, req):
@@ -160,19 +164,20 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
                 return await say(ctx, sender, PAY_FIX)
             job_id = str(uuid4())
             until = (datetime.now(timezone.utc) + timedelta(seconds=WINDOW)).strftime("%H:%M:%S UTC")
+            afet = job_amount(fet.afet, {p["afet"] for p in pending_payments.values()})
+            amount = fet_text(afet)
             pending_payments[job_id] = {"sender": sender, "url": action.url, "deadline": time.monotonic() + WINDOW,
-                                        "until": until, "timer": asyncio.create_task(expire(ctx, job_id))}
+                                        "until": until, "afet": afet, "timer": asyncio.create_task(expire(ctx, job_id))}
             ctx.logger.info(f"job {job_id} payment requested")
             await ctx.send(sender, RequestPayment(
-                accepted_funds=[Funds(currency="FET", amount=fet.price, payment_method="fet_direct")],
+                accepted_funds=[Funds(currency="FET", amount=amount, payment_method="fet_direct")],
                 recipient=fet.pay_to, deadline_seconds=WINDOW, reference=job_id,
-                description=f"Accessibility patch + signed scan log, paid in real FET on Fetch mainnet. "
-                            f"Set the tx memo to {job_id} (the reference).",
-                metadata={"x402_url": FIX_URL}))
-            await say(ctx, sender, f"Payment requested: {fet.price} real FET to {fet.pay_to} on Fetch mainnet "
-                                   f"with tx memo {job_id}, within {WINDOW} s. If no fix is confirmed, the "
-                                   f"payment is refunded by hand: send the tx hash to {fet.refund_contact}. "
-                                   f"Or pay in USDC: {PAY_FIX}", end=False)
+                description=f"Accessibility changes + signed scan log, paid in real FET on Fetch mainnet. "
+                            f"Pay exactly {amount} FET, or set the tx memo to {job_id} (the reference).",
+                metadata={"x402_url": FIX_URL, "fet_network": "mainnet"}))  # fet_network: as in Fetch's FET example
+            await say(ctx, sender, f"Payment requested: exactly {amount} real FET on Fetch mainnet, within {WINDOW} s. "
+                                   f"The exact amount ties your payment to this job. If no fix is confirmed, the "
+                                   f"payment is refunded by hand: send the tx hash to {fet.refund_contact}.", end=False)
             return
         if isinstance(action, Reply):
             if action.text != USAGE:
@@ -220,7 +225,8 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
 
         if not (p := await check()):
             return
-        ctx.logger.info(f"job {job_id} tx={tx_hash}")  # the hash only, never tx contents
+        # the hash and the metadata key names only, never tx contents or values
+        ctx.logger.info(f"job {job_id} tx={tx_hash} commit_metadata={sorted(msg.metadata or {})}")
         try:
             tx = await asyncio.to_thread(get_tx, tx_hash)  # blocking query, off the event loop
         except Exception:
@@ -231,9 +237,15 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
         # there is no await from the deadline check through verify (check-and-add `used_tx`) to the pop.
         if pending_payments.get(job_id) is not p or time.monotonic() >= p["deadline"]:
             return await check()
-        if not verify_fet_payment(tx_hash, fet.pay_to, fet.afet, lambda _: tx, used_tx, job_id):
-            return await retry("memo must equal the payment reference" if tx.get("memo") != job_id else
-                               f"transaction failed, below {fet.price} FET, wrong recipient or already used")
+        verdict = verify_fet_payment(tx_hash, fet.pay_to, fet.afet, lambda _: tx, used_tx, job_id, p["afet"])
+        if verdict == "unbound":  # real money with nothing tying it to this job: a retry can't change a sent tx
+            if tx_hash not in flagged_tx:
+                flagged_tx.add(tx_hash)
+                ctx.logger.warning(f"REFUND_DUE job {job_id} tx={tx_hash} reason=unbound")
+            return await retry(f"this transaction isn't tied to this job. If you sent it for this job, send tx {tx_hash} "
+                               f"to {fet.refund_contact} for a refund, or pay exactly {fet_text(p['afet'])} FET")
+        if verdict != "ok":
+            return await retry(UNPAID[verdict].format(price=fet_text(p["afet"])))
         del pending_payments[job_id]
         p["timer"].cancel()
         # Paid: from here every path must reply and must flag a refund if no fix was confirmed.

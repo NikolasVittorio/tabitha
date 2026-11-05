@@ -10,7 +10,7 @@ from uagents_core.contrib.protocols.payment import (
 
 import agents.lead as lead_mod
 from gate.models import Fix
-from gate.payment import fet_settings, verify_fet_payment
+from gate.payment import fet_settings, fet_text, job_amount, verify_fet_payment
 from gate.report import build_report
 
 TO = "fetch1" + "q" * 38
@@ -40,16 +40,31 @@ def tx(code=0, to=TO, amt=PRICE_AFET, denom="afet", memo=M):
 
 def test_verify_cases():
     used = set()
-    assert verify_fet_payment("h1", TO, PRICE_AFET, lambda h: tx(), used, M)
-    assert not verify_fet_payment("h1", TO, PRICE_AFET, lambda h: tx(), used, M)   # replay
-    assert not verify_fet_payment("h2", TO, PRICE_AFET, lambda h: tx(code=5), used, M)
-    assert not verify_fet_payment("h3", TO, PRICE_AFET, lambda h: tx(to="fetch1other"), used, M)
-    assert not verify_fet_payment("h4", TO, PRICE_AFET, lambda h: tx(amt=1), used, M)
-    assert not verify_fet_payment("h5", TO, PRICE_AFET, lambda h: None, used, M)
-    assert not verify_fet_payment("h6", TO, PRICE_AFET, lambda h: tx(denom="atestfet"), used, M)  # test tokens are not money
-    assert not verify_fet_payment("h7", TO, PRICE_AFET, lambda h: tx(memo="job-2"), used, M)  # memo mismatch
-    assert not verify_fet_payment("h8", TO, PRICE_AFET, lambda h: tx(memo=""), used, "")  # no empty binding
+    v = lambda h, t, memo=M, exact=None: verify_fet_payment(h, TO, PRICE_AFET, lambda _: t, used, memo, exact)
+    assert v("h1", tx()) == "ok"
+    assert v("h1", tx()) == "used"  # replay
+    assert v("h2", tx(code=5)) == "failed"
+    assert v("h3", tx(to="fetch1other")) == "wrong_recipient"
+    assert v("h4", tx(amt=1)) == "low"
+    assert v("h5", None) == "failed"
+    assert v("h6", tx(denom="atestfet")) == "wrong_recipient"  # test tokens are not money
+    assert v("h7", tx(memo="job-2")) == "unbound"  # another job's memo
+    assert v("h8", tx(memo=""), memo="") == "unbound"  # no empty binding
     assert used == {"h1"}  # failures never burn a hash
+
+
+def test_exact_amount_binds_a_payment_with_no_memo():
+    used, exact = set(), job_amount(PRICE_AFET, set())
+    v = lambda h, amt: verify_fet_payment(h, TO, PRICE_AFET, lambda _: tx(amt=amt, memo=""), used, M, exact)
+    assert v("h1", exact) == "ok" and used == {"h1"}
+    assert v("h2", exact + 1) == "unbound" and v("h3", PRICE_AFET) == "unbound"  # near misses bind to nothing
+
+
+def test_job_amounts_are_unique_exact_and_barely_above_the_price():
+    taken = {job_amount(PRICE_AFET, set()) for _ in range(20)}
+    a = job_amount(PRICE_AFET, taken)
+    assert a not in taken and PRICE_AFET < a <= PRICE_AFET + 10**15  # at most 0.001 FET extra
+    assert int(__import__("decimal").Decimal(fet_text(a)) * 10**18) == a
 
 
 SUBS = {"scan": "agent1scan", "walk": "agent1walk", "fix": "agent1fix"}
@@ -125,7 +140,8 @@ async def test_wrong_sender_rejected_then_owner_pays():
     pay, on_chat, on_commit, ctx = setup()
     req = await request(on_chat, ctx, "alice")
     assert req.deadline_seconds == 300 and req.reference in req.description
-    assert req.accepted_funds[0].amount == "0.5" and req.accepted_funds[0].payment_method == "fet_direct"
+    assert req.accepted_funds[0].amount.startswith("0.50") and req.accepted_funds[0].payment_method == "fet_direct"
+    assert req.metadata["fet_network"] == "mainnet" and req.accepted_funds[0].amount in req.description
     pay("h1", req)
     await on_commit(ctx, "mallory", commit(req, "h1"))
     assert ctx.sent[-1][0] == "mallory" and ctx.sent[-1][1].text() == UNKNOWN
@@ -143,7 +159,8 @@ async def test_two_senders_race_for_one_tx_memo_decides():
     pay("h1", ra)  # alice's tx, memo = alice's job id, publicly visible on chain
     await on_commit(ctx, "bob", commit(rb, "h1"))  # bob claims it for his own job
     last = ctx.sent[-1][1].text()
-    assert last.startswith("Payment not accepted: memo") and "resend CommitPayment before" in last
+    assert last.startswith("Payment not accepted: this transaction isn't tied") and "resend CommitPayment before" in last
+    assert "help@example.com" in last
     assert not completed(ctx, "bob") and dispatched(ctx) == []
     job_a = asyncio.create_task(on_commit(ctx, "alice", commit(ra, "h1")))
     await settle()
@@ -299,3 +316,31 @@ async def test_message_with_no_url_goes_to_the_model_up_to_the_daily_cap(monkeyp
         await send('again')
     await send('one too many')
     assert 'one too many' not in seen and last() == lead_mod.FALLBACK
+
+
+async def _pay_no_memo(amount_of):
+    chain = {}
+    agent = lead_mod.make_lead("seed", SUBS, get_tx=chain.get)
+    h = lambda m: agent._signed_message_handlers[Model.build_schema_digest(m)]
+    ctx = Ctx()
+    req = await request(h(ChatMessage), ctx, "alice")
+    chain["h1"] = tx(memo="", amt=amount_of(req))
+    return ctx, req, h(CommitPayment)
+
+
+async def test_exact_amount_with_no_memo_runs_the_job():
+    ctx, req, on_commit = await _pay_no_memo(lambda r: int(__import__("decimal").Decimal(r.accepted_funds[0].amount) * 10**18))
+    job = asyncio.create_task(on_commit(ctx, "alice", commit(req, "h1")))
+    await settle()
+    assert running_not_closed(ctx, "alice") and len(dispatched(ctx)) == 2
+    job.cancel()
+
+
+async def test_unbound_payment_flags_one_refund_and_runs_nothing(caplog):
+    ctx, req, on_commit = await _pay_no_memo(lambda r: PRICE_AFET)
+    with caplog.at_level(logging.WARNING):
+        for _ in range(2):
+            await on_commit(ctx, "alice", commit(req, "h1"))
+    last = ctx.sent[-1][1].text()
+    assert "for a refund" in last and "help@example.com" in last and "h1" in last
+    assert caplog.text.count("REFUND_DUE") == 1 and dispatched(ctx) == [] and not completed(ctx, "alice")

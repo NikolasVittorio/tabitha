@@ -1,4 +1,5 @@
 import re
+import secrets
 from decimal import Decimal
 from typing import Callable, NamedTuple
 
@@ -29,23 +30,40 @@ def fet_settings(env) -> FetSettings | None:
     return FetSettings(pay_to, price, int(Decimal(price) * 10**18), contact)
 
 
+def job_amount(price_afet: int, taken: set[int]) -> int:
+    """The price plus a little extra unique among open jobs. Paying exactly this ties a tx to one job even when the
+    wallet can't set a memo: nobody can claim someone else's public tx for a job with a different amount."""
+    while (afet := price_afet + (secrets.randbelow(10**6) + 1) * 10**9) in taken:
+        pass
+    return afet
+
+
+def fet_text(afet: int) -> str:
+    return format((Decimal(afet) / 10**18).normalize(), "f")
+
+
 def verify_fet_payment(tx_hash: str, to_address: str, min_afet: int,
-                       get_tx: Callable[[str], dict | None], used: set[str], expected_memo: str) -> bool:
-    """True once per hash: a successful tx paying >= min_afet afet to to_address whose memo is
-    expected_memo (the job id), so a tx can't be claimed by another job or buyer.
-    Synchronous on purpose: the `used` check and add can't interleave with another job."""
+                       get_tx: Callable[[str], dict | None], used: set[str], expected_memo: str,
+                       exact_afet: int | None = None) -> str:
+    """"ok" once per hash, or why not: used, failed, wrong_recipient, low, unbound.
+    A tx binds to a job by its memo (the job id) or by paying exactly exact_afet, so it can't be claimed by another
+    job or buyer. Synchronous on purpose: the `used` check and add can't interleave with another job."""
     if tx_hash in used:
-        return False
+        return "used"
     tx = get_tx(tx_hash)
-    if not tx or tx.get("code", 0) != 0 or not expected_memo or tx.get("memo") != expected_memo:
-        return False
+    if not tx or tx.get("code", 0) != 0:
+        return "failed"
     paid = sum(int(c["amount"]) for m in tx.get("messages", [])
                if m.get("@type") == MSG_SEND and m.get("to_address") == to_address
                for c in m.get("amount", []) if c.get("denom") == DENOM)
+    if paid == 0:
+        return "wrong_recipient"
     if paid < min_afet:
-        return False
+        return "low"
+    if not (expected_memo and tx.get("memo") == expected_memo) and paid != exact_afet:
+        return "unbound"
     used.add(tx_hash)
-    return True
+    return "ok"
 
 
 def fetch_get_tx(tx_hash: str) -> dict | None:
