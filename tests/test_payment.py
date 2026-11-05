@@ -274,7 +274,7 @@ async def test_expired_reference_rejected(monkeypatch):
     for _ in range(3):  # late commits on the closed reference are never terminal again
         await on_commit(ctx, "bob", commit(req2, "h2"))
         assert ctx.sent[-1][1].text() == UNKNOWN
-    assert cancels(ctx, "bob") == 1 and ends(ctx, "bob") == 1 and dispatched(ctx) == []
+    assert cancels(ctx, "bob") == 1 and ends(ctx, "bob") == 0 and dispatched(ctx) == []
 
 
 async def test_replayed_hash_rejected_across_jobs():
@@ -298,7 +298,7 @@ async def test_reject_twice_cancels_each_open_job_once():
     await request(on_chat, ctx, "alice"), await request(on_chat, ctx, "alice")
     for _ in range(2):
         await ctx.on_reject(ctx, "alice", RejectPayment(reason="no"))
-    assert cancels(ctx, "alice") == 2 and ends(ctx, "alice") == 2  # one per open job, not per reject
+    assert cancels(ctx, "alice") == 2 and ends(ctx, "alice") == 0  # one per open job, not per reject
 
 
 async def test_message_with_no_url_goes_to_the_model_up_to_the_daily_cap(monkeypatch):

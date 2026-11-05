@@ -112,7 +112,7 @@ async def test_nothing_to_sell_means_no_card(on_chat, monkeypatch, report):
     async def gate(*a): return report
     monkeypatch.setattr(lead_mod, "run_gate", gate)
     _, msg = await say_to(on_chat(), f"check {URL}")
-    assert not cards(msg) and ends(msg)
+    assert not cards(msg) and not ends(msg)
 
 
 async def test_no_card_offer_when_fet_is_off(on_chat, monkeypatch):
@@ -130,7 +130,7 @@ async def test_not_now_runs_nothing(on_chat, monkeypatch):
     # direct JSON, and the planner's prose version even when it mentions the page
     for text in (json.dumps({"action": NOT_NOW}), f"The user picked {NOT_NOW} for {URL}"):
         ctx, msg = await say_to(on_chat(), text)
-        assert msg.text() == NOT_NOW_REPLY and ends(msg)
+        assert msg.text() == NOT_NOW_REPLY and not ends(msg)
 
 
 async def test_get_a_patch_button_asks_for_payment_and_runs_nothing(on_chat, monkeypatch):

@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from uagents import Agent, Bureau, Context, Protocol
 from uagents_core.contrib.protocols.chat import (
-    ChatAcknowledgement, ChatMessage, EndSessionContent, TextContent, chat_protocol_spec,
+    ChatAcknowledgement, ChatMessage, TextContent, chat_protocol_spec,
 )
 from uagents_core.contrib.protocols.payment import (
     CancelPayment, CommitPayment, CompletePayment, Funds, RejectPayment, RequestPayment, payment_protocol_spec,
@@ -131,10 +131,13 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
         async with sem:
             return with_delta(sender, await run_job(ctx, str(uuid4()), url, False))
 
-    async def say(ctx: Context, to: str, text: str, end: bool = True, card=None):
-        """A card waits for the user's choice, so a message with one never ends the session."""
-        tail = [card] if card else [EndSessionContent()] if end else []
-        await ctx.send(to, ChatMessage(content=[TextContent(text=text)] + tail))
+    async def say(ctx: Context, to: str, text: str, card=None):
+        """No EndSessionContent: on ASI:One a reply carrying it stalled the send, so nothing displayed, and sends
+        go out one at a time, so it held up every reply behind it too."""
+        started = time.monotonic()
+        status = await ctx.send(to, ChatMessage(content=[TextContent(text=text)] + ([card] if card else [])))
+        ctx.logger.info(f"reply {getattr(status, 'status', 'unknown')} in {time.monotonic() - started:.1f}s "
+                        f"chars={len(text)} card={bool(card)}")
 
     async def close(ctx: Context, job_id: str, why: str):
         """The only place a reference closes unpaid: CancelPayment + end of chat session, once."""
@@ -177,7 +180,7 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
                 metadata={"x402_url": FIX_URL, "fet_network": "mainnet"}))  # fet_network: as in Fetch's FET example
             await say(ctx, sender, f"Payment requested: exactly {amount} real FET on Fetch mainnet, within {WINDOW} s. "
                                    f"The exact amount ties your payment to this job. If no fix is confirmed, the "
-                                   f"payment is refunded by hand: send the tx hash to {fet.refund_contact}.", end=False)
+                                   f"payment is refunded by hand: send the tx hash to {fet.refund_contact}.")
             return
         if isinstance(action, Reply):
             if action.text != USAGE:
@@ -212,7 +215,7 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
             p = pending_payments.get(job_id)
             if not p or p["sender"] != sender:  # a stranger can't touch someone else's reference
                 # never terminal: only close() ends a session, and it runs once per reference
-                await say(ctx, sender, "Unknown or closed payment reference.", end=False)
+                await say(ctx, sender, "Unknown or closed payment reference.")
                 return None
             if time.monotonic() >= p["deadline"]:
                 await close(ctx, job_id, "payment window expired")
@@ -221,7 +224,7 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
 
         async def retry(why: str):  # NON-terminal: the reference stays open until its deadline
             await say(ctx, sender, f"Payment not accepted: {why}. Fix it and resend CommitPayment "
-                                   f"before {p['until']}.", end=False)
+                                   f"before {p['until']}.")
 
         if not (p := await check()):
             return
@@ -232,7 +235,7 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
         except Exception:
             return await retry("transaction lookup failed")
         if tx is None:  # not indexed yet or chain unreachable: keep the job and its timer
-            return await say(ctx, sender, "transaction not found yet - resend CommitPayment", end=False)
+            return await say(ctx, sender, "transaction not found yet - resend CommitPayment")
         # The job may have expired or been paid during the lookup. If it is still the same open job,
         # there is no await from the deadline check through verify (check-and-add `used_tx`) to the pop.
         if pending_payments.get(job_id) is not p or time.monotonic() >= p["deadline"]:
