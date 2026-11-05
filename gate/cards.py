@@ -10,6 +10,8 @@ from gate.report import fixed_count
 NOT_NOW = "tabitha_not_now"  # distinctive: it must survive ASI:One's planner rewording the selection into prose
 NOT_NOW_REPLY = "Okay. Send `check <url>` any time."
 PAY_FIRST = "Real FET on Fetch mainnet, paid before the job runs. If no fix is confirmed, refunds are made by hand."
+# ponytail: measured on ASI:One: the payment card only shows when the personal AI delegates. Drop this if direct chat gets it.
+HOW_TO_PAY = "In a new chat, ask your ASI:One assistant to use Tabitha to fix this page. It shows the payment card there."
 
 
 def _card(kind: str, payload: dict) -> MetadataContent:
@@ -41,7 +43,7 @@ def offer_fix(r: Report, price: str) -> MetadataContent:
                                "Keyboard test": f"{r.focus_count} focus stops, {keyboard} issues",
                                "Not tested": f"{len(r.untested)} criteria need a person",
                                "Patch can cover": f"up to {r.fixable} of {r.violation_count} issues",
-                               "Patch price": f"{price} FET", "Payment": PAY_FIRST}),
+                               "Patch price": f"{price} FET", "Payment": PAY_FIRST, "How to pay": HOW_TO_PAY}),
         "approve_cta": {"label": f"Get a patch for {price} FET", "primary": True,
                         "selection": {"action": "fix", "url": r.url}},
         "reject_cta": {"label": "Not now", "selection": {"action": NOT_NOW}}})

@@ -55,6 +55,7 @@ def test_offer_states_price_and_payment_terms():
     assert rows["Patch price"] == "0.5 FET" and "before the job runs" in rows["Payment"] and "by hand" in rows["Payment"]
     assert rows["Not tested"].startswith(str(len(REPORT.untested)))
     assert rows["Patch can cover"] == "up to 1 of 1 issues"
+    assert rows["How to pay"].startswith("In a new chat, ask your ASI:One assistant")
 
 
 def cards(msg):
