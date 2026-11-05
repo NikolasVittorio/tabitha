@@ -182,8 +182,8 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
                 # ASI:One's payment card reads these keys, per Fetch's FET example; without them it fails the request
                 metadata={"x402_url": FIX_URL, "provider_agent_wallet": fet.pay_to, "fet_network": "mainnet",
                           "mainnet": "true", "content": terms}))
-            await say(ctx, sender, f"Payment requested: exactly {amount} real FET on Fetch mainnet, within {WINDOW} s. "
-                                   f"The exact amount ties your payment to this job. If no fix is confirmed, the "
+            await say(ctx, sender, f"Payment requested: send exactly {amount} real FET to {fet.pay_to} on Fetch mainnet, "
+                                   f"within {WINDOW} s. The exact amount ties your payment to this job. If no fix is confirmed, the "
                                    f"payment is refunded by hand: send the tx hash to {fet.refund_contact}.")
             return
         if isinstance(action, Reply):

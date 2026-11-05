@@ -346,3 +346,10 @@ async def test_unbound_payment_flags_one_refund_and_runs_nothing(caplog):
     last = ctx.sent[-1][1].text()
     assert "for a refund" in last and "help@example.com" in last and "h1" in last
     assert caplog.text.count("REFUND_DUE") == 1 and dispatched(ctx) == [] and not completed(ctx, "alice")
+
+
+async def test_payment_message_says_where_and_how_much_to_pay():
+    _, on_chat, _, ctx = setup()
+    req = await request(on_chat, ctx, "alice")
+    text = [m for to, m in ctx.sent if to == "alice" and isinstance(m, ChatMessage)][-1].text()
+    assert TO in text and req.accepted_funds[0].amount in text
