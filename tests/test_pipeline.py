@@ -326,6 +326,36 @@ async def test_oversized_html_gets_no_quote_and_the_fixer_is_not_called(monkeypa
     assert r.fixable == 0 and r.error is None and r.violation_count == 1
     assert calls == []
 
+async def test_oversized_html_skips_the_paid_fix_and_returns_the_free_report(monkeypatch):
+    import gate.pipeline as pipeline
+    big = "<p>" + "x" * 2_000_000 + "</p>"
+    fixer, scans = [], []
+    async def scan(r):
+        scans.append(r.job_id)
+        return ScanResult(job_id=r.job_id, findings=[F("image-alt")], tested=[], html=big, error=None, tree="live")
+    async def walk(r): return WalkResult(job_id=r.job_id, findings=[], focus_path=[], tested=[], error=None)
+    async def fix(r): fixer.append(r); raise AssertionError("fixer called")
+    async def no_labels(html, fixes): raise AssertionError("labels asked for")
+    monkeypatch.setattr(pipeline, "suggest_labels", no_labels)
+    r = await run_gate("j", "https://e.com", scan, walk, fix)
+    assert fixer == [] and scans == ["j"]
+    assert r.error is None and r.fixes == [] and r.diff == "" and r.note == "" and r.tree_before == "live"
+    assert r.violation_count == 1
+
+
+async def test_html_at_the_limit_still_gets_the_paid_fix():
+    at_limit = "<p>" + "x" * (2_000_000 - len("<p></p>")) + "</p>"
+    assert len(at_limit.encode()) == 2_000_000
+    fixer = []
+    async def scan(r): return ScanResult(job_id=r.job_id, findings=[F("image-alt")], tested=[], html=at_limit, error=None)
+    async def walk(r): return WalkResult(job_id=r.job_id, findings=[], focus_path=[], tested=[], error=None)
+    async def fix(r):
+        fixer.append(r)
+        return FixResult(job_id=r.job_id, patched_html=r.html, fixes=[])
+    await run_gate("j", "https://e.com", scan, walk, fix)
+    assert len(fixer) == 1
+
+
 async def test_login_note_is_in_the_chat_reply():
     from gate.report import render_chat
     async def scan(r): return ScanResult(job_id=r.job_id, findings=[], tested=[], html="<p>", error=None, login=True)

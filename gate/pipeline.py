@@ -18,7 +18,7 @@ FixFn = Callable[[FixRequest], Awaitable[FixResult]]
 SKIPPED_NOTE = ("Large files on the page were not loaded ({n} skipped), so anything they add or change on the page "
                 "was not checked")
 LOGIN_NOTE = "This page asks for a login, so only the login page was checked, not what is behind it"
-QUOTE_MAX_HTML = 2_000_000  # the fixer took 98 s on a 3 MB page: no offer above this, the free scan still returns
+QUOTE_MAX_HTML = 2_000_000  # the fixer took 98 s on a 3 MB page: no offer or paid fix above this, the free scan still returns
 FALLBACK_CAP = 8  # ponytail: one rescan per rule, capped; bisect the rule set if pages need more
 
 
@@ -80,9 +80,13 @@ async def _gate(job_id: str, url: str, html: str, findings: list[Finding], scan:
     return fixes, diff, b.tree, tree
 
 
+def _too_big(html: str) -> bool:
+    return len(html.encode()) > QUOTE_MAX_HTML
+
+
 async def _quote(html: str, findings: list[Finding]) -> int:
     """How many issues a paid patch could cover, so nobody pays for nothing. An upper bound: the rescan can drop a fix."""
-    if len(html.encode()) > QUOTE_MAX_HTML:
+    if _too_big(html):
         return 0
     todo = [f for f in findings if f.source == "axe" and f.status in ("fail", "needs_author")]
     try:
@@ -104,7 +108,7 @@ async def run_gate(job_id: str, url: str, scan: ScanFn, walk: WalkFn, fix: FixFn
         return build_report(job_id, url, [], [], error=s.error or w.error)
     fixes, diff, note, tb, ta = [], "", "", s.tree, ""
     fixable = await _quote(s.html, s.findings) if fix is None and s.html is not None else 0
-    if fix is not None and s.html is not None:
+    if fix is not None and s.html is not None and not _too_big(s.html):
         try:
             fixes, diff, tb, ta = await _gate(job_id, url, s.html, s.findings, scan, fix)
             fixes = await suggest_labels(s.html, fixes)
