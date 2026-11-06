@@ -69,6 +69,14 @@ def _n(k: int, word: str) -> str:
     return f"{k} {word}" + ("" if k == 1 else "s")
 
 
+def _where(selector: str) -> str:
+    if len(selector) <= SELECTOR_CHARS:
+        return _code(selector)
+    # the end of a path names the element, so keep that and start at a whole step
+    tail = selector[-SELECTOR_CHARS:]
+    return _code("... > " + (tail.partition(" > ")[2] or tail))
+
+
 def _top(fails: list) -> list[str]:
     groups: dict[str, list] = {}
     for f in fails:
@@ -83,7 +91,7 @@ def _top(fails: list) -> list[str]:
         title = re.sub(r" \(.*\)$", "", f.message.rstrip("."))
         problem, todo = PLAIN.get(f.rule_id) or (title, UNMAPPED_TODO.format(rule=_code(f.rule_id)))
         lines.append(f"{i}. **{problem}** ({_n(len(g), 'place')})\n   What to do: {todo}\n"
-                     f"   First one: {_code(f.selector[:SELECTOR_CHARS])}\n   (technical: {f.rule_id}{wcag})")
+                     f"   First one: {_where(f.selector)}\n   (technical: {f.rule_id}{wcag})")
     if len(ranked) > TOP_GROUPS:
         lines.append(f"- Plus {_n(len(ranked) - TOP_GROUPS, 'other kind')} of problem. "
                      "Fixing these and sending `recheck` will show them.")
@@ -115,12 +123,12 @@ def _listed(title: str, lines: list[str], limit: int) -> str:
 def _change(x) -> str:
     made = ", ".join(_code(f"{k} = {v}") for k, v in x.changes.items()) or "see the patch"
     check = f" ({x.note.split('; ', 1)[1]})" if "; " in x.note else ""
-    return f"- {_code(x.selector[:SELECTOR_CHARS])}: set {made}{check}"
+    return f"- {_where(x.selector)}: set {made}{check}"
 
 
 def _needs_you(x) -> str:
     draft = f" AI suggestion, not checked: {_code(x.suggestion)}" if x.suggestion else ""
-    return f"- {_code(x.selector[:SELECTOR_CHARS])}: {_code(x.note)}{draft}"
+    return f"- {_where(x.selector)}: {_code(x.note)}{draft}"
 
 
 def _fix_sections(r: Report) -> list[str]:

@@ -234,3 +234,12 @@ def test_every_known_error_has_its_own_sentence_and_keeps_its_code(code):
     first = render_chat(build_report("j", "u", [], [], error=code)).splitlines()[0]
     assert first.endswith(f"(code: ` {code} `)") and "The scan did not complete" not in first and not first.startswith("Error")
     assert not re.search(BANNED, strip_code(first), re.I)
+
+
+def test_long_selector_keeps_the_element_it_names():
+    from gate.models import Finding
+    path = " > ".join(f"div:nth-of-type({i})" for i in range(1, 12)) + " > a:nth-of-type(2)"
+    f = Finding(rule_id="focus-not-visible", source="walker", status="fail", impact=None, selector=path,
+                wcag=["2.4.7"], message="x")
+    out = render_chat(build_report("j", "https://x.test", [f], ["2.4.7"]))
+    assert "First one: ` ... > div:nth-of-type(10) > div:nth-of-type(11) > a:nth-of-type(2) `" in out
