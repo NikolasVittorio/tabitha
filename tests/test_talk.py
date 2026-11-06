@@ -42,3 +42,28 @@ def test_safety_check_rejects(bad):
 @pytest.mark.parametrize("good", ["Send `check example.com` and I'll test the page.", "Yes, a bare domain works.", FALLBACK])
 def test_safety_check_allows(good):
     assert safe(good)
+
+
+@pytest.mark.parametrize("bad", [
+    "No, you are not charged if the fix fails.",
+    "A fix costs 0.15 USDC over x402 or real FET in chat, charged only if a fix is confirmed.",
+    "You are only charged if a fix is confirmed.",
+    "There is no charge if the fix fails.",
+    "Fixes cost real FET in chat. You are not charged if the fix fails.",
+])
+def test_safety_check_rejects_a_no_charge_claim_that_could_reach_a_fet_buyer(bad):
+    assert not safe(bad)
+
+
+@pytest.mark.parametrize("good", [
+    "Agents paying 0.15 USDC over x402 are charged only if a fix is confirmed.",
+    "In chat, FET is paid before the job and refunded by hand if no fix is confirmed. "
+    "Agents paying 0.15 USDC over x402 are charged only if a fix is confirmed.",
+    "Over x402 you are not charged if the fix fails.",
+])
+def test_safety_check_allows_a_no_charge_claim_about_x402(good):
+    assert safe(good)
+
+
+def test_rules_state_the_fet_terms():
+    assert "FET is paid before the job and refunded by hand if no fix is confirmed." in talk.RULES
