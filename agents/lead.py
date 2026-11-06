@@ -21,7 +21,7 @@ from agents.rpc import Pending
 from agents.subagents import make_fixer, make_scanner, make_walker
 from gate.cards import NOT_NOW, NOT_NOW_REPLY, after_fix, intake, offer_fix
 from gate.history import History
-from gate.chat import FIX_URL, PAY_FIX, QUOTA_REPLY, USAGE, Fix, Reply, parse_chat
+from gate.chat import FIX_URL, HELP, PAY_FIX, QUOTA_REPLY, USAGE, Fix, Reply, parse_chat
 from gate.models import A11yCheckRequest, FixResult, Report, ScanResult, WalkResult
 from gate.payment import fet_settings, fet_text, fetch_get_tx, job_amount, verify_fet_payment
 from gate.pipeline import run_gate
@@ -37,7 +37,12 @@ DESCRIPTION = ("Check websites for accessibility problems before launch: WCAG 2.
 PROFILE = Path(__file__).with_name("profile.md")  # published to Agentverse when the mailbox connects
 TALKS_PER_SENDER = 20  # a day; the model costs money and sender addresses are free
 TALKS_TOTAL = 500
+PRECHECKS_PER_SENDER = 10  # a day; each is a free scan, so `fix` can't be a way round the 5 free scans
 BUSY = "Busy — try again in a minute."
+PRECHECK_LIMIT = "Fix request limit reached for today (10 per UTC day). It resets at 00:00 UTC."
+NOTHING_TO_PATCH = ("No automated issues found on {url}, so there is nothing to patch and you have not been charged. "
+                    "Automated checks only cover part of accessibility.")
+UNPATCHABLE = "A patch can't cover these, so you have not been charged. The list above is what to change."
 NO_RECEIPT = "signed scan log unavailable (no signing key configured)"
 WINDOW = 300  # seconds a payment reference stays valid
 UNPAID = {"used": "this transaction was already used", "failed": "the transaction failed on chain",
@@ -156,6 +161,7 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
         await close(ctx, job_id, "payment window expired")  # chat-only callers still hear back
 
     talks, all_talks = Quota(TALKS_PER_SENDER), Quota(TALKS_TOTAL)
+    prechecks = Quota(PRECHECKS_PER_SENDER)
 
     @chat.on_message(ChatMessage)
     async def on_chat(ctx: Context, sender: str, msg: ChatMessage):
@@ -167,6 +173,19 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
         if isinstance(action, Fix):  # never runs from chat alone: real FET here, or USDC over x402
             if not fet:
                 return await say(ctx, sender, PAY_FIX)
+            # Check the page for free before asking for money. Busy is tested first, so a busy reply costs no quota.
+            if sem.locked():
+                return await say(ctx, sender, BUSY)
+            if not prechecks.allow(sender, today):
+                return await say(ctx, sender, PRECHECK_LIMIT)
+            async with sem:  # no await since the locked() check; released before the payment request
+                r = await run_job(ctx, str(uuid4()), action.url, False)
+            if r.error:
+                return await say(ctx, sender, render_chat(r, agents=sub_addrs))
+            if not r.violation_count:
+                return await say(ctx, sender, NOTHING_TO_PATCH.format(url=r.url))
+            if not r.fixable:
+                return await say(ctx, sender, f"{render_chat(r, agents=sub_addrs)}\n\n{UNPATCHABLE}")
             job_id = str(uuid4())
             until = (datetime.now(timezone.utc) + timedelta(seconds=WINDOW)).strftime("%H:%M:%S UTC")
             afet = job_amount(fet.afet, {p["afet"] for p in pending_payments.values()})

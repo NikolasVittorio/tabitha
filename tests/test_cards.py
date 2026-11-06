@@ -137,8 +137,10 @@ async def test_not_now_runs_nothing(on_chat, monkeypatch):
 
 
 async def test_get_a_patch_button_asks_for_payment_and_runs_nothing(on_chat, monkeypatch):
-    async def boom(*a): raise AssertionError("a button must not skip payment")
-    monkeypatch.setattr(lead_mod, "run_gate", boom)
+    async def gate(job_id, url, scan, walk, fix=None):
+        assert fix is None, "a button must not skip payment"  # the free check before the request is fine
+        return REPORT
+    monkeypatch.setattr(lead_mod, "run_gate", gate)
     selection = json.loads(offer_fix(REPORT, "0.5").metadata["card_payload"])["approve_cta"]["selection"]
     ctx, _ = await say_to(on_chat(), json.dumps(selection))
     assert any(isinstance(m, RequestPayment) for _, m in ctx.sent)
