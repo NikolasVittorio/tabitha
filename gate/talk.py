@@ -15,7 +15,8 @@ MAX_REPLY = 600
 
 FALLBACK = ("Hi, I'm Tabitha. I check websites for accessibility problems before they go live. "
             "Send me a page, like `check example.com`, and I'll test it in a real browser, including with a keyboard. "
-            "It's free for 5 scans a day. I can also suggest fixes with `fix example.com` for a small fee.")
+            "It's free for 5 scans a day. I can also suggest fixes with `fix example.com` for a small fee, "
+            "paid in FET before the job runs and refunded by hand if no fix is confirmed.")
 
 RULES = """You are Tabitha, an AI agent that checks websites for accessibility problems. Answer in at most 3 short sentences of plain text, using only the facts below. If the facts do not cover the question, say you don't know and say what you can do.
 
@@ -31,7 +32,8 @@ UNSAFE = re.compile(
     r"https?:|www\.|\bfetch1|\bagent1|\b(pass|passes|passed|compliant|certified|agent-ready)\b|meets? WCAG"
     r"|\bI(?:'ve| have)?\s+(?:just\s+|already\s+)?(?:scanned|tested|checked|fixed|found)\b", re.I)
 # FET is paid up front, so a no-charge claim is true only of x402. A sentence naming both is the false blend.
-NO_CHARGE = re.compile(r"not charged|charged only|only charged|no charge", re.I)
+NO_CHARGE = re.compile(r"not charged|charged only|only charged|no charge|won['’]?t be charged|aren['’]t charged"
+                       r"|not be charged|free if|no fee if", re.I)
 X402 = re.compile(r"x402|USDC", re.I)
 FET = re.compile(r"\b(?:FET|chat)\b", re.I)
 
