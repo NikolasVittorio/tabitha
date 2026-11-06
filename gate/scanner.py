@@ -63,7 +63,7 @@ async def _dupes(cdp, ctx_id) -> list[Finding]:
 
 async def has_login(page: Page) -> bool:
     try:
-        return await page.locator("input[type=password]").count() > 0
+        return await page.locator("input[type=password]:visible").count() > 0
     except Exception:  # ponytail: only decides a note, never let it fail the scan
         return False
 

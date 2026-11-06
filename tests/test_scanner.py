@@ -160,3 +160,13 @@ async def test_has_login_sees_a_password_field(http_server):
         assert await has_login(page) is True
     async with open_page(f"{http_server}/clean.html", allow_ips=LOCAL) as (page, _, _):
         assert await has_login(page) is False
+
+
+async def test_has_login_ignores_a_hidden_password_field():
+    from gate.scanner import has_login
+    hidden = ('<main><h1>News</h1><div style="display:none"><form><input type="password"></form></div></main>')
+    async with open_html(hidden, "http://127.0.0.1:1/") as page:
+        assert await has_login(page) is False
+    shown = '<main><h1>Sign in</h1><form><input type="password"></form></main>'
+    async with open_html(shown, "http://127.0.0.1:1/") as page:
+        assert await has_login(page) is True
