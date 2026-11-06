@@ -501,3 +501,19 @@ async def test_help_costs_nothing_and_never_reaches_the_model(monkeypatch):
         await say_fix(on_chat, ctx, text="help")
     assert replies(ctx) == [lead_mod.HELP] * n
     assert await free_scans_left(on_chat, ctx) == 5  # help used none of the day's free scans
+
+
+def test_profile_states_each_payment_route_on_its_own():
+    text = Path(lead_mod.PROFILE).read_text(encoding="utf-8")
+    assert ("In chat you pay in FET before the job runs. Fixes are checked first, and if no fix is confirmed afterwards "
+            "you get a manual refund. Agents paying 0.15 USDC over x402 are charged only if a fix is confirmed.") in text
+    assert "The FET price is shown on the offer." in text
+    for sentence in re.split(r"(?<=[.!?])\s+", text):
+        assert not ("FET" in sentence and re.search(r"only charged|charged only", sentence, re.I))
+        assert not ("FET" in sentence and "only if at least one fix is confirmed" in sentence)
+
+
+def test_readme_fix_usage_mentions_the_check_before_payment_and_not_a_stale_claim():
+    text = (Path(lead_mod.PROFILE).parent.parent / "README.md").read_text(encoding="utf-8")
+    assert "Tabitha checks the page for free first and asks for payment only if a patch could cover something" in text
+    assert "Nothing runs until it is paid" not in text
