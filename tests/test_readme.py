@@ -27,3 +27,9 @@ def test_agentverse_profile_is_tagged_within_limits_and_clean():
     assert not [w for w in BANNED if w in text + DESCRIPTION.lower()]
     assert "![tag:innovationlab]" in text and "![tag:hackathon]" in text
     assert len(NAME) <= 30 and len(DESCRIPTION) <= 300
+
+
+def test_paid_patch_size_limit_is_stated():
+    from agents.lead import PROFILE
+    sentence = "Paid patches cover pages up to 2 MB of HTML."
+    assert sentence in README.read_text(encoding="utf-8") and sentence in PROFILE.read_text(encoding="utf-8")

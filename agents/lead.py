@@ -44,7 +44,7 @@ BUSY = "Busy — try again in a minute."
 PRECHECK_LIMIT = "Fix request limit reached for today (10 per UTC day); it resets at 00:00 UTC."
 NOTHING_TO_PATCH = ("No automated issues found on {url}, so there is nothing to patch and you have not been charged. "
                     "Automated checks only cover part of accessibility.")
-UNPATCHABLE = "A patch can't cover these, so you have not been charged. The list above is what to change."
+UNPATCHABLE = "Tabitha can't offer a patch for this page, so you have not been charged. The list above is what to change."
 NO_RECEIPT = "signed scan log unavailable (no signing key configured)"
 WINDOW = 300  # seconds a payment reference stays valid
 UNPAID = {"used": "this transaction was already used", "failed": "the transaction failed on chain",

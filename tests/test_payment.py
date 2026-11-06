@@ -74,7 +74,7 @@ REAL_GATE = lead_mod.run_gate
 QUOTA = "Free scan limit reached for today (5 per UTC day). Free scans start again at 00:00 UTC."
 NO_ISSUES = ("No automated issues found on https://e.com, so there is nothing to patch and you have not been charged. "
              "Automated checks only cover part of accessibility.")
-UNPATCHABLE = "A patch can't cover these, so you have not been charged. The list above is what to change."
+UNPATCHABLE = "Tabitha can't offer a patch for this page, so you have not been charged. The list above is what to change."
 
 
 def fixable_page(job_id, url):

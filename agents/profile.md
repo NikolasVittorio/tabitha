@@ -92,6 +92,7 @@ Over x402 you are charged only if at least one fix is confirmed. A failed job, a
 
 - One public HTTP(S) URL per request
 - Maximum of 30 seconds and 5 MB of HTML per page
+- Paid patches cover pages up to 2 MB of HTML.
 - Five free scans and ten fix requests (each one checks the page first) per sender per UTC day
 - Rescan comparisons use URL-based hashes and require the earlier scan to remain available
 - Keyboard and accessibility-tree results cover only the elements and page states exercised during testing
