@@ -63,13 +63,18 @@ FIXES = [
     "Selection was action=fix url=https://example.com", '{"action": "fix", "url": "https://example.com"}',
     "I have a user who wants you to fix this page: https://example.com",
     "Please fix this page, which has accessibility problems: https://example.com",
-    "I have a site, fix example.com", "Fix this page, the menu doesn't work: example.com"]
+    "I have a site, fix example.com", "Fix this page, the menu doesn't work: example.com",
+    "Please fix example.com, the contrast has not been fixed", "fix example.com, it does not work",
+    "Fix this page, the menu is not labelled: example.com"]
 SCANS = [
     "did the fix work? example.com", "does the fix work on example.com", "has the fix landed? example.com",
     "I already applied the fix on example.com", "the fix hasn't landed on example.com",
     "why didn't the fix land on example.com", "the fix isn't showing on example.com", "is the fix live on example.com?",
     "how much is a fix for example.com?", "Was the fix deployed? example.com", "I pushed a fix, check example.com",
-    "the fix worked on example.com", "the fix wasn’t applied to example.com"]
+    "the fix worked on example.com", "the fix wasn’t applied to example.com",
+    "the fix did not work on example.com", "why does the fix not show on example.com",
+    "the fix has not landed on example.com", "the fix is not live on example.com",
+    "the fix was not applied to example.com", "The fix DID NOT work on example.com"]
 
 
 @pytest.mark.parametrize("text", FIXES)

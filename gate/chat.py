@@ -47,9 +47,10 @@ FILE_EXT = {"html", "htm", "js", "css", "json", "png", "jpg", "jpeg", "gif", "sv
 CMD = re.compile(r"\b(fix|check|recheck|scan|audit|test)\b", re.I)
 # A message that begins "fix" or "please fix" is a request, whatever follows ("fix this, the menu doesn't work").
 BOUGHT = re.compile(r"^\W*(?:please\s+)?fix\b(?!\s+(?:works?|worked|working)\b)", re.I)
-# Otherwise these say the fix already happened or is being asked about. Helper verbs count only as the first words,
-# because ASI:One's planner writes purchases as prose ("The user has selected fix for ...").
+# Otherwise these say the fix already happened or is being asked about. Helper verbs with no "not" count only as the
+# first words, because ASI:One's planner writes purchases as prose ("The user has selected fix for ...").
 ASKED = re.compile(r"^\W*(?:did|does|has|have|had|was|were|is|how much)\b"
+                   r"|\b(?:did|does|has|is|was)\s+(?:the\s+fix\s+)?not\b"
                    r"|\b(?:pushed|applied|deployed|shipped|already)\b"
                    r"|\b(?:didn|doesn|hasn|isn|wasn)['’]t\b"
                    r"|\bfix\s+(?:works?|worked|working)\b", re.I)
