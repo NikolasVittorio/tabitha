@@ -292,3 +292,35 @@ async def test_log_posts_times_each_send(monkeypatch, capsys):
     result = await communication.send_exchange_envelope(envelope=env, endpoints=["e"], sync=False)
     assert result.status == "DELIVERED"
     assert "post DELIVERED in 0.0s bytes=4 digest=model:abc" in capsys.readouterr().out
+
+
+async def test_scanner_flags_a_login_page_and_still_scans_it(monkeypatch):
+    async def fake_scan(page): return [], ["1.1.1"]
+    async def fake_tree(page): return ""
+    async def fake_login(page): return True
+    monkeypatch.setattr(subagents, "open_page", _fake_open_page([]))
+    monkeypatch.setattr(subagents, "scan", fake_scan)
+    monkeypatch.setattr(subagents, "aria_tree", fake_tree)
+    monkeypatch.setattr(subagents, "has_login", fake_login)
+    ctx = Ctx()
+    await handler(subagents.make_scanner("seed", LEAD), ScanRequest)(ctx, LEAD, ScanRequest(job_id="j", url="https://e.com"))
+    r = ctx.sent[-1][1]
+    assert r.error is None and r.login is True and r.tested == ["1.1.1"]
+
+
+@pytest.mark.parametrize("make,req,code", [
+    (subagents.make_scanner, ScanRequest(job_id="j", url="https://e.com"), "not_loaded"),
+    (subagents.make_scanner, ScanRequest(job_id="j", url="https://e.com"), "not_html"),
+    (subagents.make_walker, WalkRequest(job_id="j", url="https://e.com"), "not_loaded"),
+    (subagents.make_walker, WalkRequest(job_id="j", url="https://e.com"), "not_html"),
+])
+async def test_subagents_pass_the_page_did_not_load_codes_through(make, req, code, monkeypatch):
+    from contextlib import asynccontextmanager
+    @asynccontextmanager
+    async def refuses(url):
+        raise ValueError(code)
+        yield
+    monkeypatch.setattr(subagents, "open_page", refuses)
+    ctx = Ctx()
+    await handler(make("seed", LEAD), type(req))(ctx, LEAD, req)
+    assert ctx.sent[-1][1].error == code

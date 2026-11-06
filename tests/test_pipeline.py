@@ -258,3 +258,57 @@ async def test_a_failed_quote_still_returns_the_scan(monkeypatch):
     async def walk(r): return WalkResult(job_id=r.job_id, findings=[], focus_path=[], tested=[], error=None)
     r = await run_gate("j", "https://e.com", scan, walk, None)
     assert r.fixable == 0 and r.violation_count == 1 and r.error is None
+
+
+@pytest.mark.parametrize("code", ["not_loaded", "not_html", "too_large"])
+async def test_page_that_did_not_load_gets_no_findings_no_offer_and_its_own_sentence(code):
+    from agents.subagents import error_code
+    from gate.plain import ERRORS
+    from gate.report import render_chat
+    assert error_code(ValueError(code)) == code
+    async def scan(r): return ScanResult(job_id=r.job_id, findings=[], tested=[], html=None, error=code)
+    async def walk(r): return WalkResult(job_id=r.job_id, findings=[], focus_path=[], tested=[], error=code)
+    async def fix(r): raise AssertionError("no paid work on a page that did not load")
+    for fixer in (None, fix):
+        r = await run_gate("j", "https://e.com", scan, walk, fixer)
+        text = render_chat(r)
+        assert r.error == code and r.findings == [] and r.fixable == 0 and r.automated_status == "not_scanned"
+        assert text.startswith(ERRORS[code]) and "No automated" not in text and "**Next:**" not in text
+
+LOGIN_NOTE = "This page asks for a login, so only the login page was checked, not what is behind it"
+
+async def test_login_page_gets_a_note_joined_with_the_others():
+    async def scan(r): return ScanResult(job_id=r.job_id, findings=[], tested=[], html="<p>", error=None, skipped=2, login=True)
+    async def walk(r): return WalkResult(job_id=r.job_id, findings=[], focus_path=[], tested=[], error=None)
+    r = await run_gate("j", "https://e.com", scan, walk, None)
+    assert r.note == SKIP_NOTE.format(n=2) + "; " + LOGIN_NOTE
+
+async def test_login_note_alone_and_no_note_without_a_login():
+    async def walk(r): return WalkResult(job_id=r.job_id, findings=[], focus_path=[], tested=[], error=None)
+    async def login(r): return ScanResult(job_id=r.job_id, findings=[], tested=[], html="<p>", error=None, login=True)
+    async def plain(r): return ScanResult(job_id=r.job_id, findings=[], tested=[], html="<p>", error=None)
+    assert (await run_gate("j", "https://e.com", login, walk, None)).note == LOGIN_NOTE
+    assert (await run_gate("j", "https://e.com", plain, walk, None)).note == ""
+
+
+@pytest.mark.parametrize("path,error,login", [
+    ("status/403", "not_loaded", False), ("status/404", "not_loaded", False), ("status/500", "not_loaded", False),
+    ("blank.html", "not_loaded", False), ("blocked-title.html", "not_loaded", False), ("pixel.png", "not_html", False),
+    ("login.html", None, True), ("clean.html", None, False)])
+async def test_real_browser_pages_that_did_not_load_never_get_a_clean_report(http_server, path, error, login):
+    from agents.subagents import error_code
+    from gate.browser import open_page
+    from gate.report import render_chat
+    from gate.scanner import has_login, scan as scan_page
+    LOCAL = frozenset({"127.0.0.1"})
+    async def scan(r):
+        try:
+            async with open_page(r.url, allow_ips=LOCAL) as (p, html, _):
+                f, t = await scan_page(p)
+                return ScanResult(job_id=r.job_id, findings=f, tested=t, html=html, error=None, login=await has_login(p))
+        except Exception as e:
+            return ScanResult(job_id=r.job_id, findings=[], tested=[], html=None, error=error_code(e))
+    async def walk(r): return WalkResult(job_id=r.job_id, findings=[], focus_path=[], tested=[], error=None)
+    r = await run_gate("j", f"{http_server}/{path}", scan, walk, None)
+    assert r.error == error and (LOGIN_NOTE in r.note) == login
+    assert ("No automated" in render_chat(r)) == (error is None)

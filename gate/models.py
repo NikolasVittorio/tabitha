@@ -28,6 +28,7 @@ class ScanResult(Model):
     error: str | None
     tree: str = ""
     skipped: int = 0  # files too large or over the byte budget that the page asked for and never got
+    login: bool = False  # the page has a password field, so only its login page was checked
 
 
 class WalkRequest(Model):

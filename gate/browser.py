@@ -41,8 +41,9 @@ def check_url(url: str, allow_ips: frozenset[str] = frozenset()) -> None:
 
 
 @asynccontextmanager
-async def _context(timeout_s, allow_ips, max_bytes):
+async def _context(timeout_s, allow_ips, max_bytes, *, main_max_bytes=None):
     """Fresh browser+context with the guard installed; yields (context, blocked, skipped).
+    The page's own document may be main_max_bytes (default max_bytes); every other file is held to max_bytes.
     blocked holds "too_large" only for the page's own document, which ends the job. Any other oversized or over-budget
     request is aborted and added to skipped, so the page keeps running and the scan keeps its results."""
     blocked: list[str] = []
@@ -53,6 +54,7 @@ async def _context(timeout_s, allow_ips, max_bytes):
         nonlocal total
         url, kw = route.request.url, {}
         main = _is_main_doc(route.request)
+        limit = (main_max_bytes or max_bytes) if main else max_bytes
 
         async def refuse():
             (blocked if main else skipped).append("too_large")
@@ -73,12 +75,12 @@ async def _context(timeout_s, allow_ips, max_bytes):
                 # one is skipped, not fatal, so it still adds its declared size to the budget below: that is
                 # what stops a hostile page making us buffer endless oversized files. Upgrade: httpx streaming guard.
                 declared = int(resp.headers.get("content-length") or 0)
-                if declared > max_bytes:
+                if declared > limit:
                     total += declared
                     return await refuse()
                 body = await resp.body()
                 total += len(body)
-                if len(body) > max_bytes or total > 10 * max_bytes:  # per-job budget, all requests
+                if len(body) > limit or total > 10 * max_bytes:  # per-job budget, all requests
                     return await refuse()
                 loc = resp.headers.get("location")
                 if resp.status not in (301, 302, 303, 307, 308) or not loc:
@@ -110,24 +112,54 @@ async def _context(timeout_s, allow_ips, max_bytes):
                 raise ValueError("too_large")
 
 
+# Titles and headings of bot-check and block pages that answer 200. Body text is not matched: an article may say these.
+BLOCK_PHRASES = ("attention required", "you have been blocked", "just a moment", "performing security verification",
+                 "verify you are human", "access denied")
+HTML_TYPES = ("text/html", "application/xhtml+xml")
+HAS_CONTENT_JS = ("document.body && (document.body.innerText.trim() || "
+                  "document.querySelector('a[href],button,input,select,textarea'))")
+HEADLINES_JS = "[document.title, ...['h1', 'h2'].map(t => (document.querySelector(t) || {}).innerText || '')].join(' | ')"
+
+
+async def _check_loaded(page, resp) -> None:
+    """Raises ValueError not_loaded or not_html unless resp is a real HTML page that has something on it."""
+    if not 200 <= resp.status <= 299:
+        raise ValueError("not_loaded")
+    kind = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+    if kind and kind not in HTML_TYPES:
+        raise ValueError("not_html")
+    try:  # scripts may still be rendering: wait a bounded 3 s, well inside the job deadline
+        await page.wait_for_function(HAS_CONTENT_JS, timeout=3000)
+    except PlaywrightError:
+        raise ValueError("not_loaded")
+    heads = (await page.evaluate(HEADLINES_JS)).lower()
+    if any(p in heads for p in BLOCK_PHRASES):
+        raise ValueError("not_loaded")
+
+
 @asynccontextmanager
-async def open_page(url, *, allow_ips=frozenset(), timeout_s: float = 30, max_bytes: int = 2_000_000):
-    """Yields (page, html, skipped). skipped is live: fetches can land during the caller's body, so read it after exit."""
-    async with _context(timeout_s, allow_ips, max_bytes) as (ctx, blocked, skipped):
+async def open_page(url, *, allow_ips=frozenset(), timeout_s: float = 30, max_bytes: int = 2_000_000,
+                    main_max_bytes: int = 5_000_000):
+    """Yields (page, html, skipped). skipped is live: fetches can land during the caller's body, so read it after exit.
+    Raises ValueError not_loaded for an error status, a blank page or a block page, and not_html for a file."""
+    async with _context(timeout_s, allow_ips, max_bytes, main_max_bytes=main_max_bytes) as (ctx, blocked, skipped):
         await asyncio.to_thread(check_url, url, allow_ips)  # DNS, under the deadline
         page = await ctx.new_page()
         try:
             resp = await page.goto(url, timeout=0)  # wall-clock cap is the asyncio.timeout above
-        except PlaywrightError:
+        except PlaywrightError as e:
             if "too_large" in blocked:
                 raise ValueError("too_large")
             if blocked:
                 raise Blocked(blocked[0])
+            if "Download is starting" in str(e):
+                raise ValueError("not_html")
             raise
         if "too_large" in blocked:
             raise ValueError("too_large")
         if blocked and resp is None:
             raise Blocked(blocked[0])
+        await _check_loaded(page, resp)
         yield page, (await resp.body()).decode("utf-8", "replace"), skipped
 
 

@@ -137,7 +137,7 @@ These came from the design council and the review rounds, and they're the core o
 3. **Page text is untrusted.** Anything taken from the page appears only inside collision-safe code fences, and is never followed as instructions.
 4. **Safety caps:**
    - one URL per request, with no crawling and no pasted HTML
-   - 30 s per page and 2 MB of HTML
+   - 30 s per page and 5 MB of HTML
    - a new browser context per job, with downloads blocked
    - SSRF checks after DNS resolution
 5. **Nothing is stored** except in-memory hashes for recheck. Chat messages with no URL go to the ASI:One API so a model can answer them, and paid jobs send it short snippets of the public page for label drafts. Logs hold only rule ids, hashes and job ids.

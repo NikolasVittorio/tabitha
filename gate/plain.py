@@ -209,8 +209,12 @@ UNMAPPED_TODO = "Search for the rule name {rule} to see how to fix it."
 
 # error code -> what happened and what to try. The report adds the raw code after it, for support.
 ERRORS: dict[str, str] = {
-    "too_large": "The page's main HTML is over 2 MB, the limit Tabitha can load. Try a page with less HTML, or a "
+    "too_large": "The page's main HTML is over 5 MB, the limit Tabitha can load. Try a page with less HTML, or a "
                  "lighter section of the site.",
+    "not_loaded": "Tabitha didn't get the real page, so nothing was tested. The site returned an error, a blank page or "
+                  "a bot check, and some sites block automated browsers. Try a page you own or control.",
+    "not_html": "That address is a file or data, not a web page, so there was nothing to test. Send the address of a "
+                "web page.",
     "timeout": "The page took too long to load and scan (the limit is 30 seconds), so Tabitha stopped. Try again in "
                "a minute, and check that the page opens quickly in a normal browser.",
     "blocked": "Tabitha could not reach that address, or is not allowed to. It only tests public web pages, so "

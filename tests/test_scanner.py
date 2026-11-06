@@ -152,3 +152,11 @@ async def test_axe_string_data_does_not_crash_the_scan():
         findings, _ = await scan(page)
     found = [f for f in findings if f.rule_id == "duplicate-id-aria"]
     assert found and found[0].data == {}
+
+
+async def test_has_login_sees_a_password_field(http_server):
+    from gate.scanner import has_login
+    async with open_page(f"{http_server}/login.html", allow_ips=LOCAL) as (page, _, _):
+        assert await has_login(page) is True
+    async with open_page(f"{http_server}/clean.html", allow_ips=LOCAL) as (page, _, _):
+        assert await has_login(page) is False

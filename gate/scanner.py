@@ -61,6 +61,13 @@ async def _dupes(cdp, ctx_id) -> list[Finding]:
     return found[:DUPES]
 
 
+async def has_login(page: Page) -> bool:
+    try:
+        return await page.locator("input[type=password]").count() > 0
+    except Exception:  # ponytail: only decides a note, never let it fail the scan
+        return False
+
+
 async def scan(page: Page) -> tuple[list[Finding], list[str]]:
     # axe runs in a CDP isolated world: page scripts cannot see or reconfigure it, and CSP
     # does not apply to Runtime.evaluate. ponytail: child frames are not provisioned; axe's

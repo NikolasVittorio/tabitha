@@ -5,10 +5,10 @@ from uagents import Agent, Context
 from gate.browser import Blocked, open_html, open_page
 from gate.fixer import fix
 from gate.models import FixRequest, FixResult, ScanRequest, ScanResult, WalkRequest, WalkResult
-from gate.scanner import aria_tree, scan
+from gate.scanner import aria_tree, has_login, scan
 from gate.walker import walk
 
-_KNOWN = {"too_large", "scan_tampered"}  # our own ValueError codes
+_KNOWN = {"too_large", "not_loaded", "not_html", "scan_tampered"}  # our own ValueError codes
 
 
 def error_code(e: Exception) -> str:
@@ -31,7 +31,7 @@ def make_scanner(seed: str, lead_addr: str) -> Agent:
         if sender != lead_addr:
             return
         try:
-            findings, tree, skipped = None, "", []
+            findings, tree, skipped, login = None, "", [], False
             try:
                 if req.html is not None:
                     html = req.html
@@ -41,13 +41,14 @@ def make_scanner(seed: str, lead_addr: str) -> Agent:
                 else:
                     async with open_page(req.url) as (page, html, skipped):
                         findings, tested = await scan(page)
+                        login = await has_login(page)
                         tree = await aria_tree(page)
             except TimeoutError:
                 if findings is None:
                     raise
                 tree = ""  # the tree is optional: a stall after the scan keeps the findings
             res = ScanResult(job_id=req.job_id, findings=findings, tested=tested, html=html, error=None, tree=tree,
-                             skipped=len(skipped))
+                             skipped=len(skipped), login=login)
         except Exception as e:
             res = ScanResult(job_id=req.job_id, findings=[], tested=[], html=None, error=error_code(e))
         await ctx.send(sender, res)

@@ -15,7 +15,7 @@ async def test_slow_page_times_out(http_server):
         async with open_page(f"{http_server}/slow", allow_ips=LOCAL, timeout_s=2): pass
 async def test_too_large(http_server):
     with pytest.raises(ValueError, match="too_large"):
-        async with open_page(f"{http_server}/broken.html", allow_ips=LOCAL, max_bytes=10): pass
+        async with open_page(f"{http_server}/broken.html", allow_ips=LOCAL, max_bytes=10, main_max_bytes=10): pass
 async def test_open_page_ok(http_server):
     async with open_page(f"{http_server}/clean.html", allow_ips=LOCAL) as (page, html, skipped):
         assert skipped == []
@@ -111,7 +111,7 @@ async def test_main_navigation_after_budget_spent_is_too_large(http_server):
             await page.goto(f"{http_server}/clean.html")
 async def test_late_oversized_main_navigation_wins_over_caller_exception(http_server):
     with pytest.raises(ValueError, match="too_large"):
-        async with open_page(f"{http_server}/clean.html", allow_ips=LOCAL, max_bytes=2000) as (page, _, _):
+        async with open_page(f"{http_server}/clean.html", allow_ips=LOCAL, max_bytes=2000, main_max_bytes=2000) as (page, _, _):
             await page.evaluate("setTimeout(() => { location = '/big.txt' }, 0)")
             await asyncio.sleep(1)
             raise RuntimeError("caller")
@@ -127,3 +127,41 @@ async def test_skipped_file_leaves_caller_exception_alone_html(http_server):
         async with open_html(html, http_server, allow_ips=LOCAL, max_bytes=2000):
             await asyncio.sleep(1)
             raise RuntimeError("caller")
+@pytest.mark.parametrize("status", [403, 404, 500])
+async def test_error_status_is_not_loaded(http_server, status):
+    with pytest.raises(ValueError, match="not_loaded"):
+        async with open_page(f"{http_server}/status/{status}", allow_ips=LOCAL): pass
+@pytest.mark.parametrize("path", ["pixel.png", "data.json", "doc.pdf", "attachment"])
+async def test_a_file_is_not_html(http_server, path):
+    with pytest.raises(ValueError, match="not_html"):
+        async with open_page(f"{http_server}/{path}", allow_ips=LOCAL): pass
+async def test_blank_page_is_not_loaded_after_a_bounded_wait(http_server):
+    t = time.monotonic()
+    with pytest.raises(ValueError, match="not_loaded"):
+        async with open_page(f"{http_server}/blank.html", allow_ips=LOCAL): pass
+    assert 2.5 < time.monotonic() - t < 10
+async def test_page_that_renders_late_is_not_blank(http_server):
+    async with open_page(f"{http_server}/late-render.html", allow_ips=LOCAL) as (page, _, _):
+        assert "Rendered late" in await page.inner_text("body")
+@pytest.mark.parametrize("path", ["blocked-title.html", "blocked-heading.html"])
+async def test_block_page_with_200_is_not_loaded(http_server, path):
+    with pytest.raises(ValueError, match="not_loaded"):
+        async with open_page(f"{http_server}/{path}", allow_ips=LOCAL): pass
+async def test_article_about_access_denied_still_loads(http_server):
+    async with open_page(f"{http_server}/article-access.html", allow_ips=LOCAL) as (page, _, _):
+        assert "you have been blocked" in await page.inner_text("p")
+async def test_login_page_still_opens(http_server):
+    async with open_page(f"{http_server}/login.html", allow_ips=LOCAL) as (page, _, _):
+        assert await page.locator("input[type=password]").count() == 1
+async def test_main_document_may_be_bigger_than_other_files(http_server):
+    # clean.html is a few hundred bytes: over max_bytes 100, under main_max_bytes 5000
+    async with open_page(f"{http_server}/clean.html", allow_ips=LOCAL, max_bytes=100, main_max_bytes=5000) as (page, html, _):
+        assert "Clean page" in html
+async def test_main_document_over_its_own_limit_is_too_large(http_server):
+    with pytest.raises(ValueError, match="too_large"):
+        async with open_page(f"{http_server}/clean.html", allow_ips=LOCAL, max_bytes=5000, main_max_bytes=100): pass
+async def test_other_files_keep_the_smaller_limit(http_server):
+    # late.html asks for the 3000 byte big.txt: over max_bytes 2000, under main_max_bytes, so still skipped
+    async with open_page(f"{http_server}/late.html", allow_ips=LOCAL, max_bytes=2000, main_max_bytes=5000) as (page, _, skipped):
+        await page.wait_for_timeout(1000)
+    assert len(skipped) == 1

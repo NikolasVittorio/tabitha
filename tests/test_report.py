@@ -222,14 +222,14 @@ def test_sections_run_from_what_to_change_to_what_was_not_tested():
     assert at == sorted(at)
 def test_too_large_error_says_what_happened_and_keeps_the_code():
     t = render_chat(build_report("j", "u", [], [], error="too_large")).splitlines()
-    assert t[0] == ("The page's main HTML is over 2 MB, the limit Tabitha can load. Try a page with less HTML, or a lighter "
+    assert t[0] == ("The page's main HTML is over 5 MB, the limit Tabitha can load. Try a page with less HTML, or a lighter "
                     "section of the site. (code: ` too_large `)")
     assert t[1].startswith("Send `check <url>` for a free automated scan") and len(t) == 2
 def test_unknown_error_code_gets_the_generic_sentence():
     t = render_chat(build_report("j", "u", [], [], error="weird_code")).splitlines()
     assert t[0] == "The scan did not complete, and Tabitha has no more detail. Try again in a minute. (code: ` weird_code `)"
 @pytest.mark.parametrize("code", ["too_large", "timeout", "blocked", "scan_tampered", "internal_error", "bad_request",
-                                  "quota_exceeded", "busy", "payment_required"])
+                                  "quota_exceeded", "busy", "payment_required", "not_loaded", "not_html"])
 def test_every_known_error_has_its_own_sentence_and_keeps_its_code(code):
     first = render_chat(build_report("j", "u", [], [], error=code)).splitlines()[0]
     assert first.endswith(f"(code: ` {code} `)") and "The scan did not complete" not in first and not first.startswith("Error")

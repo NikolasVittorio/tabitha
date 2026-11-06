@@ -91,7 +91,7 @@ You are charged only if at least one fix is confirmed. A failed job, a page with
 ## Limits
 
 - One public HTTP(S) URL per request
-- Maximum of 30 seconds and 2 MB per page
+- Maximum of 30 seconds and 5 MB of HTML per page
 - Five free scans per sender per UTC day
 - Rescan comparisons use URL-based hashes and require the earlier scan to remain available
 - Keyboard and accessibility-tree results cover only the elements and page states exercised during testing
