@@ -199,6 +199,10 @@ PLAIN: dict[str, tuple[str, str]] = {
         "Keyboard focus gets stuck",
         "Make sure Tab and Shift+Tab can always move on from this element, by checking any script that handles keys "
         "or moves focus back to it."),
+    "skip-link-broken": (
+        "A skip link does not lead anywhere",
+        "Point its `href` at the `id` of the main content, add `tabindex=\"-1\"` to that element, and remove any script "
+        "that cancels the link."),
     "modal-focus-escape": (
         "Keyboard focus leaves an open dialog",
         "Keep Tab inside an open dialog and close it with the Escape key, which the native `<dialog>` element with "

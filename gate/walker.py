@@ -1,4 +1,4 @@
-"""Deterministic keyboard walk: Tab through the page and report traps, modal escapes and invisible focus."""
+"""Deterministic keyboard walk: Tab through the page and report traps, modal escapes, dead skip links and invisible focus."""
 import time
 
 from playwright.async_api import Page
@@ -38,6 +38,11 @@ _TARGETS = r"""const targets = root => {
   });
 };"""
 _MODAL = """const modal = () => [...document.querySelectorAll('[aria-modal="true"],dialog[open]')].find(shown) || null;"""
+# ponytail: English wording only, so a skip link in another language goes unchecked; add words as pages need them
+_SKIP = r"""const skip = () => modal() ? null : [...document.querySelectorAll('a[href^="#"]')]
+  .find(a => shown(a) && /\bskip\b|\bjump to\b/i.test(a.getAttribute('aria-label') || a.textContent)) || null;"""
+_TARGET = r"""const target = a => { let id = a.hash.slice(1); try { id = decodeURIComponent(id); } catch {}
+  const t = id && (document.getElementById(id) || document.getElementsByName(id)[0]); return t && shown(t) ? t : null; };"""
 # outline:none leaves the UA focus-visible outline-offset/width in place; they draw nothing, so drop them
 _SIG = r"""const sig = e => { const s = getComputedStyle(e);
   const o = s.outlineStyle === 'none' ? ['outline-style'] : ['outline-style', 'outline-width', 'outline-color', 'outline-offset'];
@@ -106,6 +111,35 @@ async def _modal_check(page: Page) -> list[Finding]:
     return out
 
 
+async def _skip_check(page: Page) -> list[Finding]:
+    link = (await page.evaluate_handle("() => {" + _SHOWN + _MODAL + _SKIP + "return skip(); }")).as_element()
+    if link is None:
+        return []
+    sel = await _sel(link)
+    dead = _f("skip-link-broken", "fail", "2.4.1", sel, "This skip link does not move the keyboard past the menu.")
+    target = (await link.evaluate_handle("a => {" + _SHOWN + _TARGET + "return target(a); }")).as_element()
+    if target is None:
+        return [dead]
+    url = page.url
+    await link.evaluate("a => a.focus()")
+    await page.keyboard.press("Enter")
+    out = []
+    el = await _focused(page)
+    if el is None or not await target.evaluate("(t, e) => t.contains(e)", el):
+        await page.keyboard.press("Tab")
+        el = await _focused(page)
+        # Chromium moves its Tab starting point even when focus stays put, so the next Tab shows if the skip really worked.
+        # No element at all means nothing focusable follows the target, which is not the link's fault.
+        ahead = el is None or await target.evaluate("(t, e) => t.contains(e) || !!(t.compareDocumentPosition(e) & 4)", el)
+        out.append(_f("skip-link-focus", "needs_review", "2.4.1", sel,
+                      "The skip link scrolls the page, but keyboard focus does not move to its target.") if ahead else dead)
+    # the fragment must go first: reloading with it would start the walk at the target and report the menu as unreachable
+    # ponytail: a script that sends the skip link to another origin makes replaceState throw, like other hostile-page paths
+    await page.evaluate("u => history.replaceState(null, '', u)", url)
+    await page.reload()
+    return out
+
+
 async def _obscured(el) -> bool:
     """True when the element is entirely under other content or outside the viewport: its box clipped to the viewport
     is empty, or no sample point (centre and corners inset 2px, of that clipped box) hits it or a relative."""
@@ -162,6 +196,7 @@ async def walk(page: Page, max_presses: int = 50) -> tuple[list[Finding], list[s
     start = time.monotonic()  # the modal check and its reload count against the focus budget
     try:
         findings += await _modal_check(page)
+        findings += await _skip_check(page)
         history: list[str] = []  # every non-body focus, in press order
         cycle = False
         checked = skipped = 0  # focus stops whose indicator was / was not checked before the budget ran out

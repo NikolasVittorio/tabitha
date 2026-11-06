@@ -29,6 +29,7 @@ async def test_every_row_names_a_rule_axe_or_the_walker_can_raise():
 
 def test_the_rules_testers_hit_have_plain_wording():
     assert set(REQUIRED) - set(PLAIN) == set()
+    assert "skip-link-broken" in PLAIN
 
 
 def test_each_row_is_one_short_sentence():

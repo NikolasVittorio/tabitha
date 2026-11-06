@@ -181,6 +181,8 @@ def render_chat(r: Report, agents: dict[str, str] | None = None) -> str:
     out.append(f"**Keyboard test:** {_n(r.focus_count, 'focus stop')} walked, {_n(k, 'keyboard issue')}.\n"
                f"**Needs a person to review:** {_n(review, 'thing')} a person should check; a tool can't judge "
                f"{'it' if review == 1 else 'them'}.")
+    if skip := next((f for f in r.findings if f.rule_id == "skip-link-focus"), None):  # a count alone would hide it
+        out.append(f"**Skip link:** {skip.message} Add `tabindex=\"-1\"` to the target so focus lands there.")
     out.append(_next(r))
     out.append(f"**Not tested:** {len(r.untested)} criteria. A person needs to test these; an automated scan can't.")
     if r.fixes:

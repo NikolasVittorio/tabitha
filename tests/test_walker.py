@@ -77,3 +77,25 @@ async def test_focus_obscured_message_is_fixed_wording(http_server):
     m = next(x.message for x in f if x.rule_id == "focus-obscured")
     assert m == ("While it has keyboard focus, this element cannot be seen: it is entirely covered by other "
                  "content or outside the visible page.")
+async def test_working_skip_link_is_not_flagged(http_server):
+    r, _, _ = await ids(http_server, "skip-works.html")
+    assert "skip-link-broken" not in r and "skip-link-focus" not in r
+@pytest.mark.parametrize("name", ["skip-missing.html", "skip-dead.html", "skip-hidden-target.html"])
+async def test_dead_skip_link_fails(http_server, name):
+    r, _, _ = await ids(http_server, name)
+    assert r.get("skip-link-broken") == "fail"
+async def test_skip_link_that_only_scrolls_needs_review(http_server):
+    r, _, _ = await ids(http_server, "skip-no-focus.html")
+    assert r.get("skip-link-focus") == "needs_review" and "skip-link-broken" not in r
+async def test_fragment_link_without_skip_wording_is_ignored(http_server):
+    r, _, _ = await ids(http_server, "skip-not-a-skip-link.html")
+    assert "skip-link-broken" not in r and "skip-link-focus" not in r
+@pytest.mark.parametrize("name", ["skip-no-focus.html", "skip-dead.html"])
+async def test_skip_check_leaves_the_walk_starting_at_the_top(http_server, name):
+    r, path, _ = await ids(http_server, name)
+    assert len(path) == 3 and path[0].endswith("a:nth-of-type(1)") and "kbd-unreachable" not in r
+async def test_skip_finding_names_the_link(http_server):
+    async with open_page(f"{http_server}/skip-missing.html", allow_ips=LOCAL) as (page, _, _):
+        f, _, _ = await walk(page)
+    assert [x.selector.split(" > ")[-1] for x in f if x.rule_id == "skip-link-broken"] == ["a:nth-of-type(1)"]
+    assert [x.wcag for x in f if x.rule_id == "skip-link-broken"] == [["2.4.1"]]

@@ -243,3 +243,15 @@ def test_long_selector_keeps_the_element_it_names():
                 wcag=["2.4.7"], message="x")
     out = render_chat(build_report("j", "https://x.test", [f], ["2.4.7"]))
     assert "First one: ` ... > div:nth-of-type(10) > div:nth-of-type(11) > a:nth-of-type(2) `" in out
+
+
+def test_a_skip_link_that_only_scrolls_is_spelled_out_in_chat():
+    f = Finding(rule_id="skip-link-focus", source="walker", status="needs_review", impact=None, selector="body > a",
+                wcag=["2.4.1"], message="The skip link scrolls the page, but keyboard focus does not move to its target.")
+    text = render_chat(build_report("j", "u", [f], ["2.4.1"]))
+    assert "**Skip link:** The skip link scrolls the page, but keyboard focus does not move to its target. " \
+           "Add `tabindex=\"-1\"` to the target so focus lands there." in text
+
+
+def test_no_skip_line_without_that_finding():
+    assert "**Skip link:**" not in render_chat(build_report("j", "u", [F("rv", "needs_review")], ["1.4.3"]))
