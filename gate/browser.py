@@ -12,8 +12,11 @@ class Blocked(Exception):
     pass
 
 
-class _TooLarge(Exception):
-    pass
+def _is_main_doc(req) -> bool:
+    try:
+        return req.is_navigation_request() and req.frame.parent_frame is None
+    except PlaywrightError:  # a request with no frame (a worker's) is never the page's document
+        return False
 
 
 def check_url(url: str, allow_ips: frozenset[str] = frozenset()) -> None:
@@ -39,32 +42,44 @@ def check_url(url: str, allow_ips: frozenset[str] = frozenset()) -> None:
 
 @asynccontextmanager
 async def _context(timeout_s, allow_ips, max_bytes):
-    """Fresh browser+context with the guard installed; yields (context, blocked_list)."""
+    """Fresh browser+context with the guard installed; yields (context, blocked, skipped).
+    blocked holds "too_large" only for the page's own document, which ends the job. Any other oversized or over-budget
+    request is aborted and added to skipped, so the page keeps running and the scan keeps its results."""
     blocked: list[str] = []
+    skipped: list[str] = []
     total = 0
 
     async def guard(route):
         nonlocal total
         url, kw = route.request.url, {}
+        main = _is_main_doc(route.request)
+
+        async def refuse():
+            (blocked if main else skipped).append("too_large")
+            await route.abort("blockedbyclient")
+
         try:
             # Chromium follows redirects of routed requests internally, unchecked. So fetch
             # with max_redirects=0 and follow hops here, checking every hop.
             for _ in range(10):
                 if total >= 10 * max_bytes:  # budget spent: fetch nothing more
-                    raise _TooLarge
+                    return await refuse()
                 # getaddrinfo blocks, keep it off the event loop
                 await asyncio.to_thread(check_url, url, allow_ips)
                 if total >= 10 * max_bytes:  # another route may have spent it during the DNS await
-                    raise _TooLarge
+                    return await refuse()
                 resp = await route.fetch(max_redirects=0, **kw)
-                # ponytail: the driver still buffers one whole response before we can look at it;
-                # the deadline plus the Fly memory limit bound it. Upgrade: httpx streaming guard.
-                if int(resp.headers.get("content-length") or 0) > max_bytes:
-                    raise _TooLarge
+                # ponytail: the driver still buffers one whole response before we can look at it. An oversized
+                # one is skipped, not fatal, so it still adds its declared size to the budget below: that is
+                # what stops a hostile page making us buffer endless oversized files. Upgrade: httpx streaming guard.
+                declared = int(resp.headers.get("content-length") or 0)
+                if declared > max_bytes:
+                    total += declared
+                    return await refuse()
                 body = await resp.body()
                 total += len(body)
                 if len(body) > max_bytes or total > 10 * max_bytes:  # per-job budget, all requests
-                    raise _TooLarge
+                    return await refuse()
                 loc = resp.headers.get("location")
                 if resp.status not in (301, 302, 303, 307, 308) or not loc:
                     # ponytail: page.url stays the original URL after a redirect
@@ -72,9 +87,6 @@ async def _context(timeout_s, allow_ips, max_bytes):
                 url = urljoin(url, loc)
                 kw = {"url": url, **({"method": "GET"} if resp.status in (301, 302, 303) else {})}
             await route.abort()  # redirect loop
-        except _TooLarge:
-            blocked.append("too_large")
-            await route.abort("blockedbyclient")
         except Blocked as e:
             blocked.append(str(e))
             await route.abort("blockedbyclient")
@@ -90,7 +102,7 @@ async def _context(timeout_s, allow_ips, max_bytes):
                                             viewport={"width": 1280, "height": 800})
             await ctx.route("**/*", guard)
             await ctx.route_web_socket("**/*", lambda ws: ws.close())  # never open a real socket
-            yield ctx, blocked
+            yield ctx, blocked, skipped
         finally:
             await browser.close()
             # after close, so teardown-time records count; in finally, so exceptional exits too
@@ -100,7 +112,8 @@ async def _context(timeout_s, allow_ips, max_bytes):
 
 @asynccontextmanager
 async def open_page(url, *, allow_ips=frozenset(), timeout_s: float = 30, max_bytes: int = 2_000_000):
-    async with _context(timeout_s, allow_ips, max_bytes) as (ctx, blocked):
+    """Yields (page, html, skipped). skipped is live: fetches can land during the caller's body, so read it after exit."""
+    async with _context(timeout_s, allow_ips, max_bytes) as (ctx, blocked, skipped):
         await asyncio.to_thread(check_url, url, allow_ips)  # DNS, under the deadline
         page = await ctx.new_page()
         try:
@@ -115,7 +128,7 @@ async def open_page(url, *, allow_ips=frozenset(), timeout_s: float = 30, max_by
             raise ValueError("too_large")
         if blocked and resp is None:
             raise Blocked(blocked[0])
-        yield page, (await resp.body()).decode("utf-8", "replace")
+        yield page, (await resp.body()).decode("utf-8", "replace"), skipped
 
 
 @asynccontextmanager
@@ -125,7 +138,7 @@ async def open_html(html, base_url, *, allow_ips=frozenset(), timeout_s: float =
     # No frames or workers either (their documents would not carry this CSP), and the main frame
     # never navigates away (meta refresh), so what we scan is exactly `html`.
     # axe still runs: CDP Runtime.evaluate in an isolated world is exempt from page CSP.
-    async with _context(timeout_s, allow_ips, max_bytes) as (ctx, _):
+    async with _context(timeout_s, allow_ips, max_bytes) as (ctx, _, _):
         page = await ctx.new_page()
         served = False
 

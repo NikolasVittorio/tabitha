@@ -5,7 +5,7 @@ from gate.browser import open_page
 from gate.walker import walk
 LOCAL = frozenset({"127.0.0.1"})
 async def ids(http_server, name):
-    async with open_page(f"{http_server}/{name}", allow_ips=LOCAL) as (page, _):
+    async with open_page(f"{http_server}/{name}", allow_ips=LOCAL) as (page, _, _):
         f, path, tested = await walk(page)
     return {x.rule_id: x.status for x in f}, path, tested
 async def test_trap_detected(http_server):
@@ -43,12 +43,12 @@ async def test_no_false_trap_or_unreachable(http_server, name):
     assert "focus-obscured" not in r
 async def test_selectors_resolve_in_page_html(http_server):
     # the fixer targets these selectors with soupsieve
-    async with open_page(f"{http_server}/broken.html", allow_ips=LOCAL) as (page, html):
+    async with open_page(f"{http_server}/broken.html", allow_ips=LOCAL) as (page, html, _):
         f, path, _ = await walk(page)
     soup = BeautifulSoup(html, "html.parser")
     assert path and all(soup.select_one(s) is not None for s in path + [x.selector for x in f])
 async def test_focus_checked_beyond_ten_stops(http_server):
-    async with open_page(f"{http_server}/many-plain.html", allow_ips=LOCAL) as (page, _):
+    async with open_page(f"{http_server}/many-plain.html", allow_ips=LOCAL) as (page, _, _):
         f, _, _ = await walk(page)
     assert sum(x.rule_id == "focus-not-visible" for x in f) == 15
 async def test_focus_budget_reports_partial(http_server, monkeypatch):
@@ -72,7 +72,7 @@ async def test_element_taller_than_viewport_is_not_obscured(http_server):
     r, path, _ = await ids(http_server, "tall-button.html")
     assert path and "focus-obscured" not in r
 async def test_focus_obscured_message_is_fixed_wording(http_server):
-    async with open_page(f"{http_server}/cookie-banner.html", allow_ips=LOCAL) as (page, _):
+    async with open_page(f"{http_server}/cookie-banner.html", allow_ips=LOCAL) as (page, _, _):
         f, _, _ = await walk(page)
     m = next(x.message for x in f if x.rule_id == "focus-obscured")
     assert m == ("While it has keyboard focus, this element cannot be seen: it is entirely covered by other "

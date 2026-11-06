@@ -15,6 +15,8 @@ ScanFn = Callable[[ScanRequest], Awaitable[ScanResult]]
 WalkFn = Callable[[WalkRequest], Awaitable[WalkResult]]
 FixFn = Callable[[FixRequest], Awaitable[FixResult]]
 
+SKIPPED_NOTE = ("Large files on the page were not loaded ({n} skipped), so anything they add or change on the page "
+                "was not checked")
 FALLBACK_CAP = 8  # ponytail: one rescan per rule, capped; bisect the rule set if pages need more
 
 
@@ -106,6 +108,8 @@ async def run_gate(job_id: str, url: str, scan: ScanFn, walk: WalkFn, fix: FixFn
                 tb, ta = s.tree, ""
         except Exception:  # any rescan/fixer failure: still return the scan report
             fixes, diff, note, tb, ta = [], "", "fix step unavailable", s.tree, ""
+    if skipped := max(s.skipped, w.skipped):  # both load the page, so the larger count saw the most
+        note = "; ".join(x for x in (SKIPPED_NOTE.format(n=skipped), note) if x)
     r = build_report(job_id, url, w.findings + s.findings, sorted(set(s.tested) | set(w.tested)),
                      fixes=fixes, diff=diff, focus_count=len(w.focus_path))
     return r.copy(update={"note": note, "tree_before": tb, "tree_after": ta, "fixable": fixable,

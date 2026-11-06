@@ -31,7 +31,7 @@ def make_scanner(seed: str, lead_addr: str) -> Agent:
         if sender != lead_addr:
             return
         try:
-            findings, tree = None, ""
+            findings, tree, skipped = None, "", []
             try:
                 if req.html is not None:
                     html = req.html
@@ -39,14 +39,15 @@ def make_scanner(seed: str, lead_addr: str) -> Agent:
                         findings, tested = await scan(page)
                         tree = await aria_tree(page)
                 else:
-                    async with open_page(req.url) as (page, html):
+                    async with open_page(req.url) as (page, html, skipped):
                         findings, tested = await scan(page)
                         tree = await aria_tree(page)
             except TimeoutError:
                 if findings is None:
                     raise
                 tree = ""  # the tree is optional: a stall after the scan keeps the findings
-            res = ScanResult(job_id=req.job_id, findings=findings, tested=tested, html=html, error=None, tree=tree)
+            res = ScanResult(job_id=req.job_id, findings=findings, tested=tested, html=html, error=None, tree=tree,
+                             skipped=len(skipped))
         except Exception as e:
             res = ScanResult(job_id=req.job_id, findings=[], tested=[], html=None, error=error_code(e))
         await ctx.send(sender, res)
@@ -62,9 +63,10 @@ def make_walker(seed: str, lead_addr: str) -> Agent:
         if sender != lead_addr:
             return
         try:
-            async with open_page(req.url) as (page, _):
+            async with open_page(req.url) as (page, _, skipped):
                 findings, focus_path, tested = await walk(page)
-            res = WalkResult(job_id=req.job_id, findings=findings, focus_path=focus_path, tested=tested, error=None)
+            res = WalkResult(job_id=req.job_id, findings=findings, focus_path=focus_path, tested=tested, error=None,
+                             skipped=len(skipped))
         except Exception as e:
             res = WalkResult(job_id=req.job_id, findings=[], focus_path=[], tested=[], error=error_code(e))
         await ctx.send(sender, res)

@@ -30,15 +30,17 @@ async def main(url: str, out: str | None) -> dict:
     async def do_scan(q):
         opener = open_html(q.html, q.url, allow_ips=allow) if q.html is not None else open_page(q.url, allow_ips=allow)
         async with opener as opened:
-            page, html = (opened, q.html) if q.html is not None else opened
+            page, html, skipped = (opened, q.html, []) if q.html is not None else opened
             findings, tested = await scan(page)
-            return ScanResult(job_id=q.job_id, findings=findings, tested=tested, html=html, error=None,
-                              tree=await aria_tree(page))
+            tree = await aria_tree(page)
+        return ScanResult(job_id=q.job_id, findings=findings, tested=tested, html=html, error=None, tree=tree,
+                          skipped=len(skipped))
 
     async def do_walk(q):
-        async with open_page(q.url, allow_ips=allow) as (page, _):
+        async with open_page(q.url, allow_ips=allow) as (page, _, skipped):
             findings, path, tested = await walk(page)
-        return WalkResult(job_id=q.job_id, findings=findings, focus_path=path, tested=tested, error=None)
+        return WalkResult(job_id=q.job_id, findings=findings, focus_path=path, tested=tested, error=None,
+                          skipped=len(skipped))
 
     async def do_fix(q):
         html, fixes = fix(q.html, q.findings, set(q.rules) if q.rules is not None else None)

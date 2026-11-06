@@ -218,7 +218,59 @@ async def test_scanner_returns_findings_when_tree_stalls(monkeypatch):
     await handler(subagents.make_scanner("seed", LEAD), ScanRequest)(
         ctx, LEAD, ScanRequest(job_id="j", url="https://e.com", html="<p>"))
     r = ctx.sent[-1][1]
-    assert r.error is None and r.findings == [f] and r.tree == "" and r.html == "<p>"
+    assert r.error is None and r.findings == [f] and r.tree == "" and r.html == "<p>" and r.skipped == 0
+
+
+def _fake_open_page(skipped, limit=None):
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def fake_open_page(url):  # same shape as gate.browser: (page, html, live skipped list), all under the deadline
+        async with asyncio.timeout(limit):
+            yield object(), "<p>", skipped
+    return fake_open_page
+
+
+async def test_scanner_counts_files_skipped_after_the_page_closed(monkeypatch):
+    from gate.models import Finding
+    f = Finding(rule_id="r", source="axe", status="fail", impact=None, selector="#a", wcag=[], message="m")
+    skipped = ["too_large"]
+
+    async def fake_scan(page):
+        skipped.append("too_large")  # a late fetch lands while the caller's body runs
+        return [f], ["1.1.1"]
+    async def fake_tree(page): return "- button"
+    monkeypatch.setattr(subagents, "open_page", _fake_open_page(skipped))
+    monkeypatch.setattr(subagents, "scan", fake_scan)
+    monkeypatch.setattr(subagents, "aria_tree", fake_tree)
+    ctx = Ctx()
+    await handler(subagents.make_scanner("seed", LEAD), ScanRequest)(ctx, LEAD, ScanRequest(job_id="j", url="https://e.com"))
+    r = ctx.sent[-1][1]
+    assert r.error is None and r.findings == [f] and r.tree == "- button" and r.skipped == 2
+
+
+async def test_scanner_counts_skipped_files_when_tree_stalls(monkeypatch):
+    skipped = ["too_large"]
+    async def fake_scan(page): return [], ["1.1.1"]
+    async def stalled_tree(page): await asyncio.sleep(10)
+    monkeypatch.setattr(subagents, "open_page", _fake_open_page(skipped, 0.2))
+    monkeypatch.setattr(subagents, "scan", fake_scan)
+    monkeypatch.setattr(subagents, "aria_tree", stalled_tree)
+    ctx = Ctx()
+    await handler(subagents.make_scanner("seed", LEAD), ScanRequest)(ctx, LEAD, ScanRequest(job_id="j", url="https://e.com"))
+    r = ctx.sent[-1][1]
+    assert r.error is None and r.tree == "" and r.skipped == 1
+
+
+async def test_walker_counts_skipped_files(monkeypatch):
+    skipped = ["too_large", "too_large", "too_large"]
+    async def fake_walk(page): return [], ["#a"], ["2.1.1"]
+    monkeypatch.setattr(subagents, "open_page", _fake_open_page(skipped))
+    monkeypatch.setattr(subagents, "walk", fake_walk)
+    ctx = Ctx()
+    await handler(subagents.make_walker("seed", LEAD), WalkRequest)(ctx, LEAD, WalkRequest(job_id="j", url="https://e.com"))
+    r = ctx.sent[-1][1]
+    assert r.error is None and r.focus_path == ["#a"] and r.skipped == 3
 
 
 async def test_check_protocol_in_manifest():  # async: Agent() needs a running loop

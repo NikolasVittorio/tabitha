@@ -27,6 +27,7 @@ class ScanResult(Model):
     html: str | None
     error: str | None
     tree: str = ""
+    skipped: int = 0  # files too large or over the byte budget that the page asked for and never got
 
 
 class WalkRequest(Model):
@@ -40,6 +41,7 @@ class WalkResult(Model):
     focus_path: list[str]
     tested: list[str]
     error: str | None
+    skipped: int = 0
 
 
 class FixRequest(Model):

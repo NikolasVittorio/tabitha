@@ -20,6 +20,30 @@ async def test_merges_scan_and_walk():
     assert r.error is None and r.focus_count == 2 and r.violation_count == 2
     assert sorted(r.tested) == ["1.1.1", "2.1.1", "2.1.2"]
 
+SKIP_NOTE = ("Large files on the page were not loaded ({n} skipped), so anything they add or change on the page "
+             "was not checked")
+
+async def test_skipped_files_become_a_note_using_the_larger_count():
+    async def scan(r): return ScanResult(job_id=r.job_id, findings=[], tested=[], html="<p>", error=None, skipped=2)
+    async def walk(r): return WalkResult(job_id=r.job_id, findings=[], focus_path=[], tested=[], error=None, skipped=3)
+    r = await run_gate("j", "https://e.com", scan, walk, None)
+    assert r.note == SKIP_NOTE.format(n=3)
+
+async def test_no_skipped_files_no_note():
+    async def scan(r): return ScanResult(job_id=r.job_id, findings=[], tested=[], html="<p>", error=None)
+    async def walk(r): return WalkResult(job_id=r.job_id, findings=[], focus_path=[], tested=[], error=None)
+    assert (await run_gate("j", "https://e.com", scan, walk, None)).note == ""
+
+async def test_skipped_files_note_joins_the_fix_failure_note():
+    async def scan(r):
+        if r.html is None:
+            return ScanResult(job_id=r.job_id, findings=[F("a")], tested=[], html="<p>0</p>", error=None, skipped=1)
+        return ScanResult(job_id=r.job_id, findings=[], tested=[], html=None, error="timeout")
+    async def walk(r): return WalkResult(job_id=r.job_id, findings=[], focus_path=[], tested=[], error=None)
+    async def fix(req): return FixResult(job_id=req.job_id, patched_html=req.html + "A", fixes=[Fix(rule_id="a", selector="x", outcome="fixed", note="")])
+    r = await run_gate("j", "https://e.com", scan, walk, fix)
+    assert r.note == SKIP_NOTE.format(n=1) + "; fix step unavailable"
+
 async def test_rpc_failure_is_error_report():
     async def scan(r): raise asyncio.TimeoutError
     async def walk(r): raise RuntimeError("boom <script>")
@@ -108,7 +132,7 @@ async def test_rescan_cloak_cannot_forge_fixed(http_server):
             async with open_html(r.html, r.url, allow_ips=LOCAL) as p:
                 f, t = await scan_page(p)
             return ScanResult(job_id=r.job_id, findings=f, tested=t, html=r.html, error=None)
-        async with open_page(r.url, allow_ips=LOCAL) as (p, html):
+        async with open_page(r.url, allow_ips=LOCAL) as (p, html, _):
             f, t = await scan_page(p)
         return ScanResult(job_id=r.job_id, findings=f, tested=t, html=html, error=None)
     async def walk(r): return WalkResult(job_id=r.job_id, findings=[], focus_path=[], tested=[], error=None)
@@ -204,7 +228,7 @@ async def test_patch_shows_changed_lines_only(http_server):
             async with open_html(r.html, r.url, allow_ips=LOCAL) as p:
                 f, t = await scan_page(p)
             return ScanResult(job_id=r.job_id, findings=f, tested=t, html=r.html, error=None)
-        async with open_page(r.url, allow_ips=LOCAL) as (p, html):
+        async with open_page(r.url, allow_ips=LOCAL) as (p, html, _):
             f, t = await scan_page(p)
         return ScanResult(job_id=r.job_id, findings=f, tested=t, html=html, error=None)
     async def walk(r): return WalkResult(job_id=r.job_id, findings=[], focus_path=[], tested=[], error=None)
