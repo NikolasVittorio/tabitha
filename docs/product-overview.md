@@ -37,7 +37,7 @@ A caller sends one public URL. The agent opens it in a real browser and:
    - "Automated issues N → M after fixes"
    - on a repeat scan of the same URL, the counts since the last scan plus up to 5 findings under "New since your last scan:". Typed callers get `Delta.new_at`, the indices into `findings` of the new ones. These are new automated issues (`fail` and `needs_author`); needs-review findings are not compared. If focus visibility was only partly checked on either scan (time limit), `Delta.partial` is set and the reply adds a caveat line
    - the changes to make, one per element, and what still needs a person (typed and x402 callers also get the diff)
-   - the criteria it did **not** test
+   - how many criteria it did **not** test (the typed `Report` lists them)
    - a fixed disclaimer
 6. **Signs a log** of exactly what was tested. The ed25519 public key is in the README. A signed log is "valid for this exact input at this time only".
 
@@ -45,7 +45,7 @@ A caller sends one public URL. The agent opens it in a real browser and:
 
 | Command | Cost | Returns |
 |---|---|---|
-| `check <url>` | Free, 5 per sender per UTC day | Issues, keyboard walk, accessibility tree, untested criteria |
+| `check <url>` | Free, 5 per sender per UTC day | Issues, keyboard walk, accessibility tree, how many criteria are untested |
 | `recheck <url>` | Same as `check` | The same, plus "since your last scan: A → B (G no longer detected, N new)" and up to 5 of the new automated findings (needs-review findings are not compared) |
 | `fix <url>` | Real FET on Fetch mainnet (Agent Payment Protocol), paid before the job; refunded by hand if no fix is confirmed | All of the above, plus the patch, before/after trees and a signed log |
 | `POST https://api.nik0.io/fix` (x402) | 0.15 real USDC on Base, only if a fix is confirmed | The full `Report` with the patch, before/after trees and a signed log |
@@ -133,7 +133,7 @@ These came from the design council and the review rounds, and they're the core o
    - Banned in all output and copy: "pass", "compliant", "certified", "agent-ready".
    - `automated_status` must be one of `violations_found`, `no_automated_violations_detected` or `not_scanned`.
    - The disclaimer always appears, word for word.
-   - Untested criteria are always listed.
+   - Untested criteria are always counted in chat and always listed in `Report.untested`.
 3. **Page text is untrusted.** Anything taken from the page appears only inside collision-safe code fences, and is never followed as instructions.
 4. **Safety caps:**
    - one URL per request, with no crawling and no pasted HTML

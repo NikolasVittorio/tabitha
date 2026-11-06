@@ -1,4 +1,7 @@
 import re
+
+import pytest
+
 from gate.models import Finding, Fix
 from gate.report import build_report, render_chat
 F = lambda rid, st="fail", src="axe": Finding(rule_id=rid, source=src, status=st, impact="serious", selector="#x", wcag=["1.4.3"], message="m")
@@ -24,7 +27,11 @@ def test_sections():
     fs = [F(f"r{i}") for i in range(7)] + [F("kb", "fail", "walker"), F("rv", "needs_review")]
     r = build_report("j", "u", fs, ["1.4.3"], fixes=[Fix(rule_id="r0", selector="#x", outcome="fixed", note="n")], diff="D", focus_count=12)
     t = render_chat(r)
-    assert "(r0, 1 place, WCAG 1.4.3). Example: ` #x `" in t and "Plus 3 other issue types" in t
+    assert t.startswith("**8 kinds of automated accessibility problem found, 8 places to change**\nPage: ` u `\n\nAutomated issues 8")
+    assert ("\n\n**Fix these first**\n1. **m** (1 place)\n   What to do: Search for the rule name ` r0 ` to see how to fix it.\n"
+            "   First one: ` #x `\n   (technical: r0, WCAG 1.4.3)\n2. **m** (1 place)") in t
+    assert "5. **m** (1 place)\n   What to do: Search for the rule name ` r4 ` to see" in t and "` r5 `" not in t
+    assert "- Plus 3 other kinds of problem. Fixing these and sending `recheck` will show them." in t
     assert "**Keyboard test:** 12 focus stops walked, 1 keyboard issue." in t
     assert "r0" in t.split("Fixes")[1] and "fixed" in t
 def test_error_only():
@@ -140,9 +147,10 @@ def test_chat_leads_with_a_summary_and_groups_issues():
     fs = [f("minor-a", "minor", "#m")] + [f("many", "serious", f"#s{i}") for i in range(3)] + [f("worst", "critical", "#c")]
     t = render_chat(build_report("j", "https://e.com", fs, ["1.4.3"]).copy(update={"fixable": 2}))
     assert "for changes covering up to 2 of 5 issues (paid)" in t
-    assert t.startswith("**5 automated accessibility issues found**\nPage: ` https://e.com `\n\n**Top issues**\n")
-    assert t.index("**worst help**") < t.index("**many help**") < t.index("**minor-a help**")  # worst impact first
-    assert "(many, 3 places, WCAG 1.4.3). Example: ` #s0 `" in t and "#s1" not in t  # one example per type
+    assert t.startswith("**3 kinds of automated accessibility problem found, 5 places to change**\nPage: ` https://e.com `\n\n**Fix these first**\n")
+    assert t.index("1. **worst help**") < t.index("2. **many help**") < t.index("3. **minor-a help**")  # worst impact first
+    assert ("2. **many help** (3 places)\n   What to do: Search for the rule name ` many ` to see how to fix it.\n"
+            "   First one: ` #s0 `\n   (technical: many, WCAG 1.4.3)") in t and "#s1" not in t  # one example per kind
     assert "**Next:** send ` fix https://e.com `" in t and t.index("**Next:**") < t.index("**Not tested:**")
     assert not re.search(BANNED, strip_code(t), re.I)
 def test_chat_next_step_follows_the_result():
@@ -156,7 +164,9 @@ def test_long_selector_is_cut_in_chat():
 def test_group_title_drops_detail_about_one_element():
     f = Finding(rule_id="focus", source="walker", status="fail", impact=None, selector="#a", wcag=["2.4.7"],
                 message="No visible change on this element (Tab never reached it)")
-    assert "**No visible change on this element** (focus, 1 place" in render_chat(build_report("j", "u", [f], ["2.4.7"]))
+    t = render_chat(build_report("j", "u", [f], ["2.4.7"]))
+    assert "1. **No visible change on this element** (1 place)\n" in t and "(technical: focus, WCAG 2.4.7)" in t
+    assert "Tab never reached it" not in t
 def _paid_reply():
     fixes = [Fix(rule_id="button-name", selector="button", outcome="fixed", note="aria-label set; verify wording",
                  changes={"aria-label": "Buy `now`"}),
@@ -178,4 +188,49 @@ def test_paid_changes_are_not_cut_short():
     assert "#c39" in render_chat(build_report("j", "u", [F("a")], ["1.4.3"], fixes=fixes))
 def test_no_paid_offer_when_a_patch_covers_nothing():
     t = render_chat(build_report("j", "https://e.com", [F("a")], ["1.4.3"]))
-    assert "(paid)" not in t and "these need a person" in t
+    assert "(paid)" not in t
+    assert "**Next:** make the changes listed above, then send ` recheck https://e.com ` to see what is left." in t.splitlines()
+def test_known_rule_gets_plain_words_and_the_exact_change():
+    fs = [Finding(rule_id="image-alt", source="axe", status="needs_author", impact="critical", selector=f"img:nth-of-type({i})",
+                  wcag=["1.1.1"], message="Images must have alternate text") for i in (1, 2)]
+    t = render_chat(build_report("j", "u", fs, ["1.1.1"]))
+    assert ("1. **Images have no text description** (2 places)\n"
+            "   What to do: Add an `alt` attribute to each `<img>` that says what it shows, or `alt=\"\"` (empty on purpose) if it is only decoration.\n"
+            "   First one: ` img:nth-of-type(1) `\n   (technical: image-alt, WCAG 1.1.1)") in t
+    assert "Images must have alternate text" not in t
+def test_note_sits_directly_under_the_head_once():
+    note = "Large files on the page were not loaded (2 skipped), so anything they add or change on the page was not checked"
+    t = render_chat(build_report("j", "https://e.com", [], ["1.4.3"]).copy(update={"note": note}))
+    assert t.startswith(f"**No automated issues detected**\nPage: ` https://e.com `\nNote: {note}\n\n") and t.count("Note:") == 1
+    assert "Note:" not in render_chat(build_report("j", "u", [], ["1.4.3"]))
+def test_review_count_says_what_it_means():
+    def reviews(n): return render_chat(build_report("j", "u", [F(f"r{i}", "needs_review") for i in range(n)], ["1.4.3"])).splitlines()
+    assert "**Needs a person to review:** 13 things a person should check; a tool can't judge them." in reviews(13)
+    assert "**Needs a person to review:** 1 thing a person should check; a tool can't judge it." in reviews(1)
+def test_not_tested_gives_the_count_not_the_list():
+    r = build_report("j", "u", [], ["1.4.3"])
+    t = render_chat(r)
+    assert f"**Not tested:** {len(r.untested)} criteria. A person needs to test these; an automated scan can't." in t.splitlines()
+    assert "1.2.1" in r.untested and "1.2.1" not in t
+def test_sections_run_from_what_to_change_to_what_was_not_tested():
+    from gate.models import Delta
+    r = build_report("j", "u", [F("a")], ["1.4.3"]).copy(update={"delta": Delta(since="x", before=1, after=1, gone=0, new=0)})
+    t = render_chat(r)
+    marks = ["**1 kind of automated accessibility problem found", "**Fix these first**", "Since your last scan", "**Keyboard test:**",
+             "**Needs a person to review:**", "**Next:**", "**Not tested:**", "Automated scan result"]
+    at = [t.index(m) for m in marks]
+    assert at == sorted(at)
+def test_too_large_error_says_what_happened_and_keeps_the_code():
+    t = render_chat(build_report("j", "u", [], [], error="too_large")).splitlines()
+    assert t[0] == ("The page's main HTML is over 2 MB, the limit Tabitha can load. Try a page with less HTML, or a lighter "
+                    "section of the site. (code: ` too_large `)")
+    assert t[1].startswith("Send `check <url>` for a free automated scan") and len(t) == 2
+def test_unknown_error_code_gets_the_generic_sentence():
+    t = render_chat(build_report("j", "u", [], [], error="weird_code")).splitlines()
+    assert t[0] == "The scan did not complete, and Tabitha has no more detail. Try again in a minute. (code: ` weird_code `)"
+@pytest.mark.parametrize("code", ["too_large", "timeout", "blocked", "scan_tampered", "internal_error", "bad_request",
+                                  "quota_exceeded", "busy", "payment_required"])
+def test_every_known_error_has_its_own_sentence_and_keeps_its_code(code):
+    first = render_chat(build_report("j", "u", [], [], error=code)).splitlines()[0]
+    assert first.endswith(f"(code: ` {code} `)") and "The scan did not complete" not in first and not first.startswith("Error")
+    assert not re.search(BANNED, strip_code(first), re.I)

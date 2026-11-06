@@ -19,7 +19,7 @@ from gate.report import render_chat  # noqa: E402
 from gate.scanner import aria_tree, scan  # noqa: E402
 from gate.walker import walk  # noqa: E402
 
-SECTIONS = ("**Top issues**", "**Keyboard test", "**Not tested", "**Next:", "**Changes to make**", "**Fixes**",
+SECTIONS = ("**Fix these first**", "**Keyboard test", "**Not tested", "**Next:", "**Changes to make**", "**Fixes**",
             "Suggested patch", "Automated scan result", "Agents on this job", "What an AI agent sees")
 AGENTS = {"scan": "agent1scan", "walk": "agent1walk", "fix": "agent1fix"}
 

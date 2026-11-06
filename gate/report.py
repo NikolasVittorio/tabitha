@@ -1,6 +1,7 @@
 import re
 
 from gate.models import Report
+from gate.plain import ERRORS, GENERIC_ERROR, PLAIN, UNMAPPED_TODO
 from gate.wcag import untested
 
 DISCLAIMER = (
@@ -75,15 +76,17 @@ def _top(fails: list) -> list[str]:
     # keyboard findings have no axe impact, so they rank with serious
     ranked = sorted(groups.values(), key=lambda g: (IMPACT.get(g[0].impact, 1), -len(g)))
     lines = []
-    for g in ranked[:TOP_GROUPS]:
+    for i, g in enumerate(ranked[:TOP_GROUPS], 1):
         f = g[0]
         wcag = f", WCAG {', '.join(f.wcag)}" if f.wcag else ""
         # the walker's trailing "(...)" describes one element, not the whole group
         title = re.sub(r" \(.*\)$", "", f.message.rstrip("."))
-        lines.append(f"- **{title}** ({f.rule_id}, {_n(len(g), 'place')}{wcag}). "
-                     f"Example: {_code(f.selector[:SELECTOR_CHARS])}")
+        problem, todo = PLAIN.get(f.rule_id) or (title, UNMAPPED_TODO.format(rule=_code(f.rule_id)))
+        lines.append(f"{i}. **{problem}** ({_n(len(g), 'place')})\n   What to do: {todo}\n"
+                     f"   First one: {_code(f.selector[:SELECTOR_CHARS])}\n   (technical: {f.rule_id}{wcag})")
     if len(ranked) > TOP_GROUPS:
-        lines.append(f"- Plus {_n(len(ranked) - TOP_GROUPS, 'other issue type')}.")
+        lines.append(f"- Plus {_n(len(ranked) - TOP_GROUPS, 'other kind')} of problem. "
+                     "Fixing these and sending `recheck` will show them.")
     return lines
 
 
@@ -96,8 +99,7 @@ def _next(r: Report) -> str:
         return (f"**Next:** send {_code('fix ' + r.url)} for changes covering up to {r.fixable} of "
                 f"{r.violation_count} issues (paid), or {_code('recheck ' + r.url)} after you change the page.")
     if r.violation_count:
-        return (f"**Next:** these need a person, because a patch can't safely cover them. "
-                f"Send {_code('recheck ' + r.url)} after you change the page.")
+        return f"**Next:** make the changes listed above, then send {_code('recheck ' + r.url)} to see what is left."
     return f"**Next:** have a person test what automated checks cannot, and send {_code('recheck ' + r.url)} after changes."
 
 
@@ -145,16 +147,19 @@ def fixed_count(r: Report) -> int:
 
 def render_chat(r: Report, agents: dict[str, str] | None = None) -> str:
     if r.error:
-        return f"Error: {_code(r.error)}\n{USAGE}"
+        return f"{ERRORS.get(r.error, GENERIC_ERROR)} (code: {_code(r.error)})\n{USAGE}"
     fails = [f for f in r.findings if f.status in ("fail", "needs_author")]
-    head = (f"**{_n(r.violation_count, 'automated accessibility issue')} found**" if r.violation_count
-            else "**No automated issues detected**")
-    out = [f"{head}\nPage: {_code(r.url)}"]
+    head = (f"**{_n(len({f.rule_id for f in fails}), 'kind')} of automated accessibility problem found, "
+            f"{_n(len(fails), 'place')} to change**" if fails else "**No automated issues detected**")
+    # the note sits under the head so a clean result with files not loaded is not read as a full check
+    out = ["\n".join([head, f"Page: {_code(r.url)}"] + ([f"Note: {r.note}"] if r.note else []))]
     if r.fixes:
         k = fixed_count(r)
         out.append(f"Automated issues {r.violation_count} \u2192 {r.violation_count - k} after fixes ({k} fixed and "
                    "re-checked on the page source with scripts off)" if k else
                    "No automated issue was fixed; see fix outcomes below")
+    if fails:
+        out.append("\n".join(["**Fix these first**"] + _top(fails)))
     if d := r.delta:
         out.append(f"Since your last scan of this URL ({d.since}): automated issues {d.before} \u2192 {d.after} "
                    f"({d.gone} no longer detected, {d.new} new)")
@@ -163,15 +168,13 @@ def render_chat(r: Report, agents: dict[str, str] | None = None) -> str:
                        "issues can show as new or no longer detected for that reason alone.")
         if new := [r.findings[i] for i in d.new_at if i < len(r.findings)][:5]:
             out.append("\n".join(["New since your last scan:"] + [f"- {f.rule_id} \u2014 {_code(f.selector)}" for f in new]))
-    if fails:
-        out.append("\n".join(["**Top issues**"] + _top(fails)))
     k = sum(f.source == "walker" and f.status == "fail" for f in r.findings)
+    review = sum(f.status == "needs_review" for f in r.findings)
     out.append(f"**Keyboard test:** {_n(r.focus_count, 'focus stop')} walked, {_n(k, 'keyboard issue')}.\n"
-               f"**Needs a person to review:** {sum(f.status == 'needs_review' for f in r.findings)}.")
+               f"**Needs a person to review:** {_n(review, 'thing')} a person should check; a tool can't judge "
+               f"{'it' if review == 1 else 'them'}.")
     out.append(_next(r))
-    if r.note:
-        out.append(f"Note: {r.note}")
-    out.append(f"**Not tested:** {len(r.untested)} criteria ({', '.join(r.untested)})")
+    out.append(f"**Not tested:** {len(r.untested)} criteria. A person needs to test these; an automated scan can't.")
     if r.fixes:
         out += _fix_sections(r)
     out.append(r.disclaimer)

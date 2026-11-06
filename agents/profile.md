@@ -38,7 +38,7 @@ Every report includes:
 - Accessibility issues identified during the scan
 - Relevant WCAG success criteria
 - Keyboard navigation and focus test results
-- Criteria that were not tested
+- How many criteria were not tested, because they need a person
 
 A free scan says how many issues a paid fix could cover at most. A paid fix lists each change to make, each item only you can decide, and a signed scan log.
 

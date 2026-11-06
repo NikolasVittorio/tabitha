@@ -7,7 +7,7 @@ AI agents are shipping websites at machine speed, and most of those pages break 
 
 ## Not an overlay
 
-Overlay widgets add a script to the live page and claim to repair it. Tabitha doesn't. It opens the page in a real browser, measures it, and (with `fix`) returns the changes to make, one per element, so they work with whatever built the page. Every fix is re-checked by scanning the patched page again, with scripts off, and dropped if the rescan finds any new failure. No AI model writes the results: scans and fixes use fixed rules. A model answers general questions in chat, and on paid jobs it can draft wording for labels Tabitha won't guess. A draft is marked as AI and unchecked, is never applied, never counts as fixed, is never charged for, and stays out of the signed log. Untested criteria are always listed, and the report never says a page meets WCAG.
+Overlay widgets add a script to the live page and claim to repair it. Tabitha doesn't. It opens the page in a real browser, measures it, and (with `fix`) returns the changes to make, one per element, so they work with whatever built the page. Every fix is re-checked by scanning the patched page again, with scripts off, and dropped if the rescan finds any new failure. No AI model writes the results: scans and fixes use fixed rules. A model answers general questions in chat, and on paid jobs it can draft wording for labels Tabitha won't guess. A draft is marked as AI and unchecked, is never applied, never counts as fixed, is never charged for, and stays out of the signed log. The report always says how many criteria no tool can test (the typed `Report` lists them), and it never says a page meets WCAG.
 
 ## The problem
 
@@ -36,14 +36,14 @@ python -m pytest -q
 
 Connect the lead's mailbox from the Inspector link, then chat with it from ASI:One.
 
-Reproduce an empty result: send `check https://example.com`. You get zero automated violations, the keyboard-walk summary, the full disclaimer and the list of criteria that were not tested.
+Reproduce an empty result: send `check https://example.com`. You get zero automated violations, the keyboard-walk summary, the full disclaimer and how many criteria were not tested.
 Reproduce a blocked URL: send `check http://169.254.169.254/`. The metadata address is refused before any content loads and you get an error report.
 
 ## Usage
 
 Send a chat message to the lead (for example from ASI:One):
 
-- `check <url>`: free automated scan plus keyboard walk, and how many issues a paid patch could cover at most. 5 per sender per UTC day. A bare domain works too: `check example.com` and `example.com` both scan `https://example.com`. A full `http://` or `https://` URL in the message wins; emails and file names like `index.html` are ignored.
+- `check <url>`: free automated scan plus keyboard walk, and how many issues a paid patch could cover at most. The reply opens with the biggest problems in plain words, each with what to change and an example element. 5 per sender per UTC day. A bare domain works too: `check example.com` and `example.com` both scan `https://example.com`. A full `http://` or `https://` URL in the message wins; emails and file names like `index.html` are ignored.
 - `fix <url>`: changes to make, rechecked on the page source with scripts off (page scripts are not re-run), plus a signed scan log. Labels come only from `placeholder`, `title`, or for a button or link the text right beside it. Anything else is listed for you, with suggested wording when the model has some. Typed and x402 callers also get the full diff. Paid in real money: real FET through the Payment Protocol, or 0.15 USDC on Base over [x402](#paying-with-x402). Nothing runs until it is paid.
 - `recheck <url>`: a free scan like `check`, sent after a fix. When you have scanned the same URL before, any scan reply adds a "Since your last scan" line: issue counts before and after, how many are no longer detected and how many are new. It then lists up to 5 of the new ones under "New since your last scan:". These are automated issues (`fail` and `needs_author` findings); needs-review findings are not compared. If focus visibility was only partly checked on either scan (time limit), the reply says focus issues can show as new or no longer detected for that reason alone.
 
@@ -54,7 +54,7 @@ Scan replies name the agents that worked on the job, with their addresses. They 
 `fix` uses the Payment Protocol (seller role) when `FET_PAY_TO`, `FET_PRICE` and `FET_REFUND_CONTACT` are set. The lead sends a `RequestPayment` for `FET_PRICE` plus a small amount unique to the job (under 0.001 FET), in real FET (`fet_direct`), to `FET_PAY_TO`, the owner's wallet, with the job id as `reference` and a 300 s deadline. The buyer pays on Fetch mainnet **either that exact amount or at least the price with the tx memo set to the reference**, and sends `CommitPayment` with the tx hash and that reference. The lead checks the tx on chain (successful, a bank send to that wallet in `afet`, bound to this job by the exact amount or the memo, hash never used before). A real payment with neither binding logs `REFUND_DUE` once and gets the refund contact. The payment path has been tested with a stand-in chain, not yet with a real ASI:One wallet. Only then does it run the fix, and it replies `CompletePayment` after the report is delivered. A tx that is not indexed yet gets "transaction not found yet - resend CommitPayment". Any other mismatch gets a "Payment not accepted: <reason>" chat line. In both cases the reference stays open until its deadline. A reference is consumed once, by a verified payment, and only the sender who asked can use it. `CancelPayment` is sent only when a reference closes unpaid: at the deadline or after `RejectPayment`. The buyer pays before the job runs, so if the job fails or confirms no fix, the reply gives the refund contact and the server logs `REFUND_DUE` with the job and tx; refunds are made by hand. State is in memory, so a job paid just before a restart is lost and refunded by hand. If these settings are missing or invalid, chat `fix` replies with the x402 terms only.
 
 
-Input is a single public http(s) URL (bare domains in chat only). No crawling, no pasted HTML. Each page gets 30 s and 2 MB at most.
+Input is a single public http(s) URL (bare domains in chat only). No crawling, no pasted HTML. Each page gets 30 s. Its HTML can be 2 MB at most. Any other file over 2 MB, or any file after the page has loaded 20 MB in all, is skipped, and the reply says how many were not loaded.
 
 ## Calling it from your agent
 
@@ -83,7 +83,7 @@ Typed and chat calls share the same 5 free scans per sender per UTC day and the 
 - `quota_exceeded`: the 5 free scans for today are used up.
 - `busy`: both job slots are taken. Try again in a minute; the attempt is not counted against the quota.
 - `payment_required`: `mode="fix"`. A typed fix never runs; `note` says how to pay.
-- Scan errors such as `timeout` or `too_large` come through unchanged.
+- Scan errors such as `timeout`, `blocked` or `too_large` come through unchanged, as the code. Chat replies spell the same code out in plain words and keep it beside them.
 
 When `error` is set, nothing was scanned; ignore the other fields. `automated_status` is then `not_scanned`.
 

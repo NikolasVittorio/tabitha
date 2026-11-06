@@ -208,7 +208,8 @@ async def test_complete_payment_only_after_report_delivered(monkeypatch):
     pay("h1", req)
     await on_commit(ctx, "alice", commit(req, "h1"))
     report, done = [m for to, m in ctx.sent if to == "alice"][-2:]
-    assert isinstance(report, ChatMessage) and report.text().startswith("Error:")
+    assert isinstance(report, ChatMessage) and report.text().startswith("The page took too long to load and scan (the limit is 30 seconds)")
+    assert "(code: ` timeout `)" in report.text()
     assert isinstance(done, CompletePayment) and done.transaction_id == "h1"
     assert "no fix was confirmed" in report.text() and "h1" in report.text() and "help@example.com" in report.text()
 
