@@ -55,16 +55,30 @@ def test_not_domains():
 def test_command_word_inside_the_url_is_not_a_command():
     assert parse_chat("fix.com", "s", Quota(), D) == Scan("https://fix.com")
 
-@pytest.mark.parametrize("text", [
+FIXES = [
     "fix example.com", "please fix example.com", "can you fix https://example.com?", "fix my site example.com",
-    "Use Tabitha to fix this page: example.com"])
+    "Use Tabitha to fix this page: example.com", "FIX example.com",
+    # what ASI:One's planner writes when a person picks the paid option
+    "The user has selected fix for https://example.com", "The user has approved the fix for https://example.com",
+    "Selection was action=fix url=https://example.com", '{"action": "fix", "url": "https://example.com"}',
+    "I have a user who wants you to fix this page: https://example.com",
+    "Please fix this page, which has accessibility problems: https://example.com",
+    "I have a site, fix example.com", "Fix this page, the menu doesn't work: example.com"]
+SCANS = [
+    "did the fix work? example.com", "does the fix work on example.com", "has the fix landed? example.com",
+    "I already applied the fix on example.com", "the fix hasn't landed on example.com",
+    "why didn't the fix land on example.com", "the fix isn't showing on example.com", "is the fix live on example.com?",
+    "how much is a fix for example.com?", "Was the fix deployed? example.com", "I pushed a fix, check example.com",
+    "the fix worked on example.com", "the fix wasn’t applied to example.com"]
+
+
+@pytest.mark.parametrize("text", FIXES)
 def test_a_request_to_fix_is_a_fix(text):
-    assert isinstance(parse_chat(text, "s", Quota(), D), Fix)
+    got = parse_chat(text, "s", Quota(), D)
+    assert got == Fix("https://example.com"), got
 
 
-@pytest.mark.parametrize("text", [
-    "did the fix work? example.com", "does the fix work on example.com", "I pushed a fix, check example.com",
-    "I already applied the fix on example.com", "has the fix landed? example.com", "Was the fix deployed? example.com"])
+@pytest.mark.parametrize("text", SCANS)
 def test_a_question_about_a_fix_is_a_free_scan(text):
     q = Quota(limit=1)
     assert parse_chat(text, "s", q, D) == Scan("https://example.com")

@@ -75,7 +75,7 @@ This allows other AI agents to integrate accessibility testing directly into the
 
 ## Paying for a Fix
 
-**Payment Protocol, real FET.** Send `fix <url>` in chat. Tabitha sends a `RequestPayment` with an exact amount, the wallet and a reference. Pay that exact amount on Fetch mainnet, then send `CommitPayment` with the transaction hash. Tabitha checks the payment on chain, runs the fix, sends the report and then `CompletePayment`. Tabitha first checks the page for free and asks for payment only if a patch could cover something. In chat you pay in FET before the job runs. Fixes are checked first, and if no fix is confirmed afterwards you get a manual refund. Agents paying 0.15 USDC over x402 are charged only if a fix is confirmed. The FET price is shown on the offer. If a refund is due, the reply says who to contact.
+**Payment Protocol, real FET.** Send `fix <url>` in chat. Tabitha first checks the page for free, and asks for payment only if a patch could cover something. If the page has no automated issues, a patch can't cover them, or Tabitha is busy, you are not charged. Then Tabitha sends a `RequestPayment` with an exact amount, the wallet and a reference. Pay that exact amount on Fetch mainnet, then send `CommitPayment` with the transaction hash. Tabitha checks the payment on chain, runs the fix, sends the report and then `CompletePayment`. In chat you pay in FET before the job runs. Fixes are checked first, and if no fix is confirmed afterwards you get a manual refund. Agents paying 0.15 USDC over x402 are charged only if a fix is confirmed. The FET price is shown on the offer. If a refund is due, the reply says who to contact.
 
 **x402, USDC.** An agent or client that supports [x402](https://docs.x402.org) calls the endpoint, with no account needed:
 
@@ -92,7 +92,7 @@ Over x402 you are charged only if at least one fix is confirmed. A failed job, a
 
 - One public HTTP(S) URL per request
 - Maximum of 30 seconds and 2 MB per page
-- Five free scans per sender per UTC day
+- Five free scans and ten fix requests (each one checks the page first) per sender per UTC day
 - Rescan comparisons use URL-based hashes and require the earlier scan to remain available
 - Keyboard and accessibility-tree results cover only the elements and page states exercised during testing
 - Automated checks cover only part of accessibility testing; manual testing with assistive technologies is still necessary

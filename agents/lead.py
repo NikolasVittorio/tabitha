@@ -39,7 +39,7 @@ TALKS_PER_SENDER = 20  # a day; the model costs money and sender addresses are f
 TALKS_TOTAL = 500
 PRECHECKS_PER_SENDER = 10  # a day; each is a free scan, so `fix` can't be a way round the 5 free scans
 BUSY = "Busy — try again in a minute."
-PRECHECK_LIMIT = "Fix request limit reached for today (10 per UTC day). It resets at 00:00 UTC."
+PRECHECK_LIMIT = "Fix request limit reached for today (10 per UTC day); it resets at 00:00 UTC."
 NOTHING_TO_PATCH = ("No automated issues found on {url}, so there is nothing to patch and you have not been charged. "
                     "Automated checks only cover part of accessibility.")
 UNPATCHABLE = "A patch can't cover these, so you have not been charged. The list above is what to change."
@@ -80,7 +80,8 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
     except ValueError as e:  # fail closed: fixes stay on x402, and the rest of the agent keeps running
         print(f"FET payments off: {e}", flush=True)
         fet = None
-    pay_note = PAY_FIX + (" Or send `fix <url>` over the Chat Protocol to pay in FET." if fet else "")
+    pay_note = PAY_FIX + (" In chat, `fix <url>` is paid in FET instead: you pay before the job runs, and if no fix is "
+                          "confirmed the refund is made by hand." if fet else "")
     # ponytail: in memory, lost on restart (like the quota). The memo stops a replay across a restart, but a job
     # paid just before a restart is lost, and is refunded by hand. Persist if paid volume ever matters.
     pending_payments: dict[str, dict] = {}  # job_id -> {sender, url, deadline, timer}
@@ -181,9 +182,10 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
             async with sem:  # no await since the locked() check; released before the payment request
                 r = await run_job(ctx, str(uuid4()), action.url, False)
             if r.error:
+                prechecks.refund(sender, today)  # a page that fails to load is not the sender's doing
                 return await say(ctx, sender, render_chat(r, agents=sub_addrs))
             if not r.violation_count:
-                return await say(ctx, sender, NOTHING_TO_PATCH.format(url=r.url))
+                return await say(ctx, sender, "\n\n".join(x for x in (NOTHING_TO_PATCH.format(url=r.url), r.note) if x))
             if not r.fixable:
                 return await say(ctx, sender, f"{render_chat(r, agents=sub_addrs)}\n\n{UNPATCHABLE}")
             job_id = str(uuid4())

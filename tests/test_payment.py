@@ -11,7 +11,7 @@ from uagents_core.contrib.protocols.payment import (
 )
 
 import agents.lead as lead_mod
-from gate.models import Fix
+from gate.models import A11yCheckRequest, Finding, Fix, ScanResult, WalkResult
 from gate.payment import fet_settings, fet_text, job_amount, verify_fet_payment
 from gate.report import build_report, render_chat
 
@@ -470,7 +470,7 @@ async def test_fix_requests_have_their_own_daily_limit(monkeypatch):
         await say_fix(on_chat, ctx)
     assert len(checked) == 10 and len(requests_for(ctx)) == 10
     await say_fix(on_chat, ctx)
-    assert replies(ctx) == ["Fix request limit reached for today (10 per UTC day). It resets at 00:00 UTC."]
+    assert replies(ctx) == ["Fix request limit reached for today (10 per UTC day); it resets at 00:00 UTC."]
     assert len(checked) == 10 and len(requests_for(ctx)) == 10
     await say_fix(on_chat, ctx, "bob")  # per sender
     assert len(requests_for(ctx, "bob")) == 1
@@ -517,3 +517,56 @@ def test_readme_fix_usage_mentions_the_check_before_payment_and_not_a_stale_clai
     text = (Path(lead_mod.PROFILE).parent.parent / "README.md").read_text(encoding="utf-8")
     assert "Tabitha checks the page for free first and asks for payment only if a patch could cover something" in text
     assert "Nothing runs until it is paid" not in text
+
+
+async def test_a_failed_check_does_not_use_the_fix_request_limit(monkeypatch):
+    stub_gate(monkeypatch, precheck=lambda j, u: build_report(j, u, [], [], error="timeout"))
+    _, on_chat, _, ctx = setup()
+    for _ in range(lead_mod.PRECHECKS_PER_SENDER + 2):
+        await say_fix(on_chat, ctx)
+    assert lead_mod.PRECHECK_LIMIT not in replies(ctx) and len(replies(ctx)) == lead_mod.PRECHECKS_PER_SENDER + 2
+
+
+async def test_no_issues_reply_keeps_the_scan_note(monkeypatch):
+    note = "Large files on the page were not loaded (2 skipped), so anything they add or change on the page was not checked"
+    stub_gate(monkeypatch, precheck=lambda j, u: build_report(j, u, [], []).copy(update={"note": note}))
+    _, on_chat, _, ctx = setup()
+    await say_fix(on_chat, ctx)
+    assert replies(ctx) == [NO_ISSUES + "\n\n" + note] and requests_for(ctx) == []
+
+
+async def test_real_check_of_a_page_a_patch_cannot_cover_is_not_charged(monkeypatch):
+    monkeypatch.setattr(lead_mod, "run_gate", REAL_GATE)  # only the scan and walk replies are stubbed
+    agent = lead_mod.make_lead("seed", SUBS)
+    h = lambda m: agent._signed_message_handlers[Model.build_schema_digest(m)]
+    f = Finding(rule_id="color-contrast", source="axe", status="fail", impact="serious", selector="p", wcag=["1.4.3"],
+                message="m")
+
+    class Auto(Ctx):
+        async def send(self, to, msg):
+            await super().send(to, msg)
+            if to == SUBS["scan"]:
+                reply = ScanResult(job_id=msg.job_id, findings=[f], tested=["1.4.3"], html="<p>text</p>", error=None)
+            elif to == SUBS["walk"]:
+                reply = WalkResult(job_id=msg.job_id, findings=[], focus_path=[], tested=[], error=None)
+            else:
+                return
+            asyncio.create_task(agent._protocol.signed_message_handlers[Model.build_schema_digest(type(reply))](self, to, reply))
+
+    ctx = Auto()
+    await h(ChatMessage)(ctx, "alice", ChatMessage(content=[TextContent(text="fix https://e.com")]))
+    [text] = replies(ctx)
+    assert text.endswith("\n\n" + UNPATCHABLE) and "Text is too faint" in text
+    assert requests_for(ctx) == []
+
+
+async def test_typed_fix_note_does_not_stretch_the_x402_charge_terms_to_fet():
+    ctx = Ctx()
+    agent = lead_mod.make_lead("seed", SUBS)
+    await agent._signed_message_handlers[Model.build_schema_digest(A11yCheckRequest)](
+        ctx, "me", A11yCheckRequest(url="https://e.com", mode="fix"))
+    note = ctx.sent[-1][1].note
+    assert note.startswith(lead_mod.PAY_FIX) and note.endswith(
+        " In chat, `fix <url>` is paid in FET instead: you pay before the job runs, and if no fix is confirmed the refund "
+        "is made by hand.")
+

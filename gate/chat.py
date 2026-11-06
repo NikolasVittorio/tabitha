@@ -45,8 +45,14 @@ DOMAIN = re.compile(r"(?<![\w@.\-/:])((?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z
 # also an extension (.py, .md) is refused; the sender can use a full https:// URL. Upgrade: a public-suffix list.
 FILE_EXT = {"html", "htm", "js", "css", "json", "png", "jpg", "jpeg", "gif", "svg", "txt", "md", "py", "pdf"}
 CMD = re.compile(r"\b(fix|check|recheck|scan|audit|test)\b", re.I)
-# words that say the fix already happened or is being asked about, so the message is not a request to buy one
-ASKED = re.compile(r"\b(did|does|has|have|had|was|were|worked?|pushed|applied|deployed|shipped|already)\b", re.I)
+# A message that begins "fix" or "please fix" is a request, whatever follows ("fix this, the menu doesn't work").
+BOUGHT = re.compile(r"^\W*(?:please\s+)?fix\b(?!\s+(?:works?|worked|working)\b)", re.I)
+# Otherwise these say the fix already happened or is being asked about. Helper verbs count only as the first words,
+# because ASI:One's planner writes purchases as prose ("The user has selected fix for ...").
+ASKED = re.compile(r"^\W*(?:did|does|has|have|had|was|were|is|how much)\b"
+                   r"|\b(?:pushed|applied|deployed|shipped|already)\b"
+                   r"|\b(?:didn|doesn|hasn|isn|wasn)['’]t\b"
+                   r"|\bfix\s+(?:works?|worked|working)\b", re.I)
 HELP_ASK = re.compile(r"(help|commands|menu|what can you do|how does this work|how do i use this)\??", re.I)
 
 
@@ -60,11 +66,13 @@ def parse_chat(text: str, sender: str, quota: Quota, today: date) -> Scan | Fix 
     url = m.group().rstrip(".,;:!?")
     if m.re is DOMAIN:
         url = "https://" + url
-    # ponytail: a paid fix runs only when "fix" is the only command word and no word says it already happened, so
-    # "I pushed a fix, recheck x.com" and "did the fix work? x.com" scan. Ceiling: any of those words ("have", "was")
-    # turns a real request into a free scan, whose reply still offers the fix. Hosts (fix.com) are cut out first.
+    # ponytail: a paid fix runs only when "fix" is the only command word and the message starts with "fix" or does not
+    # sound like a question about a fix already made, so "I pushed a fix, recheck x.com" and "did the fix work? x.com"
+    # scan. Ceiling: a request that contains one of those phrases but does not start with "fix" ("can you fix this? it
+    # isn't labelled: x.com") is a free scan, and the sender sends `fix` again to buy. Upgrade: an intent classifier.
+    # Hosts (fix.com) are cut out first.
     bare = DOMAIN.sub(" ", URL.sub(" ", text))
-    if {c.lower() for c in CMD.findall(bare)} == {"fix"} and not ASKED.search(bare):
+    if {c.lower() for c in CMD.findall(bare)} == {"fix"} and (BOUGHT.match(bare) or not ASKED.search(bare)):
         return Fix(url)  # paid: the lead replies with the payment terms
     if not quota.allow(sender, today):
         return Reply(QUOTA_REPLY)
