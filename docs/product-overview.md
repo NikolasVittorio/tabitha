@@ -47,13 +47,13 @@ A caller sends one public URL. The agent opens it in a real browser and:
 |---|---|---|
 | `check <url>` | Free, 5 per sender per UTC day | Issues, keyboard walk, accessibility tree, how many criteria are untested |
 | `recheck <url>` | Same as `check` | The same, plus "since your last scan: A → B (G no longer detected, N new)" and up to 5 of the new automated findings (needs-review findings are not compared) |
-| `fix <url>` | Real FET on Fetch mainnet (Agent Payment Protocol), paid before the job; refunded by hand if no fix is confirmed | All of the above, plus the patch, before/after trees and a signed log |
+| `fix <url>` | Real FET on Fetch mainnet (Agent Payment Protocol). Tabitha checks the page for free first and asks for FET only if a patch could cover something. Paid before the job; refunded by hand if no fix is confirmed | All of the above, plus the patch, before/after trees and a signed log |
 | `POST https://api.nik0.io/fix` (x402) | 0.15 real USDC on Base, only if a fix is confirmed | The full `Report` with the patch, before/after trees and a signed log |
 | Typed `A11yCheckRequest {url, mode}` | Same as chat | The full `Report` as structured data, for agent-to-agent calls |
 
-A paid `fix` runs only when "fix" is the only command word in the message, so `I pushed a fix, recheck example.com` is a scan, not a fix. A command word inside a URL or host (`fix.com`) does not count.
+A paid `fix` runs only when "fix" is the only command word in the message, and the message begins with "fix" or "please fix" or does not read as a question about a fix already made. So `I pushed a fix, recheck example.com`, `did the fix work? example.com` and `the fix did not work on example.com` are free scans, not fixes. A command word inside a URL or host (`fix.com`) does not count.
 
-On error codes: typed replies carry `bad_request`, `quota_exceeded`, `busy`, `payment_required`, `timeout` or `blocked`. An error reply has `automated_status: "not_scanned"`, so it never reads as a clean page.
+On error codes: typed replies carry `bad_request`, `quota_exceeded`, `busy`, `payment_required`, `timeout`, `blocked`, `too_large`, `not_loaded` or `not_html`. An error reply has `automated_status: "not_scanned"`, so it never reads as a clean page.
 
 ### Fixes it makes today
 
@@ -147,7 +147,7 @@ These came from the design council and the review rounds, and they're the core o
 ## Known limits and deferred items
 
 - **Fix verification runs on the page source with scripts off.** A page whose own scripts undo a fix won't be caught. A runtime re-check was deferred.
-- **Redirected pages** are scanned at the original URL.
+- **Pages that redirect on the server** are scanned at the original URL. A page that redirects itself with a script or a meta refresh is scanned where it lands.
 - **Payments in progress, quota and recheck history live in memory,** so a restart loses them. A job paid just before a restart is refunded by hand.
 - **iframes and shadow DOM** are flagged for review, not scanned inside.
 - **Chat URL parsing** accepts `http://`, `https://` and bare domains (`mysite.com` is read as `https://mysite.com`; a bare domain keeps its port, path, query and fragment). It still cuts URLs at parentheses and rejects IPv6. A full URL in the message wins over a bare domain, and emails and common file names such as `index.html` are ignored. Any dotted word ending in a 2 to 63 letter label counts as a domain (no TLD list), so a real TLD that is also a file extension (`.py`, `.md`) needs the full URL.

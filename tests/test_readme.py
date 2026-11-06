@@ -33,3 +33,17 @@ def test_paid_patch_size_limit_is_stated():
     from agents.lead import PROFILE
     sentence = "Paid patches cover pages up to 2 MB of HTML."
     assert sentence in README.read_text(encoding="utf-8") and sentence in PROFILE.read_text(encoding="utf-8")
+
+
+def test_docs_state_the_current_error_codes_redirects_and_fix_rule():
+    from agents.lead import PROFILE
+    readme = README.read_text(encoding="utf-8")
+    overview = (README.parent / "docs" / "product-overview.md").read_text(encoding="utf-8")
+    assert "Scan errors such as `timeout`, `blocked`, `too_large`, `not_loaded` or `not_html` come through" in readme
+    assert "A page that redirects itself with a script or a meta refresh is scanned where it lands." in readme
+    assert "Pages that redirect are scanned at the original URL" not in readme
+    assert "`timeout`, `blocked`, `too_large`, `not_loaded` or `not_html`" in overview
+    assert "A page that redirects itself with a script or a meta refresh is scanned where it lands." in overview
+    assert "checks the page for free first and asks for FET only if a patch could cover something" in overview
+    assert "`the fix did not work on example.com`" in overview
+    assert "If the page has no automated issues, fails to load, a patch can't cover them, or Tabitha is busy, you are not charged." in PROFILE.read_text(encoding="utf-8")
