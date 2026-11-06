@@ -218,7 +218,7 @@ ERRORS: dict[str, str] = {
     "timeout": "The page took too long to load and scan (the limit is 30 seconds), so Tabitha stopped. Try again in "
                "a minute, and check that the page opens quickly in a normal browser.",
     "blocked": "Tabitha could not reach that address, or is not allowed to. It only tests public web pages, so "
-               "private or local addresses and pages behind a login will not work. Check the address and try again.",
+               "private or local addresses will not work. Check the address and try again.",
     "scan_tampered": "The page interfered with the scan, so Tabitha cannot trust any result from it. Try again; if "
                      "it keeps happening, the page is blocking automated checks.",
     "internal_error": "Something went wrong while loading or scanning the page, and Tabitha could not tell what. "

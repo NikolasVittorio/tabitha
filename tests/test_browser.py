@@ -165,3 +165,34 @@ async def test_other_files_keep_the_smaller_limit(http_server):
     async with open_page(f"{http_server}/late.html", allow_ips=LOCAL, max_bytes=2000, main_max_bytes=5000) as (page, _, skipped):
         await page.wait_for_timeout(1000)
     assert len(skipped) == 1
+async def test_late_rendering_page_under_a_strict_csp_still_opens(http_server):
+    async with open_page(f"{http_server}/csp-late-render.html", allow_ips=LOCAL) as (page, _, _):
+        assert "Rendered late" in await page.inner_text("body")
+@pytest.mark.parametrize("path", ["js-redirect.html", "meta-refresh.html"])
+async def test_page_that_redirects_itself_is_judged_where_it_lands(http_server, path):
+    async with open_page(f"{http_server}/{path}", allow_ips=LOCAL) as (page, html, _):
+        assert page.url.endswith("clean.html")
+        assert "Hop" in html
+async def test_busy_page_with_real_text_is_not_refused_as_blank(http_server):
+    async with open_page(f"{http_server}/busy.html", allow_ips=LOCAL) as (page, html, _):
+        assert "Real text is already here" in html
+async def test_text_and_controls_in_an_open_shadow_root_count(http_server):
+    async with open_page(f"{http_server}/shadow-app.html", allow_ips=LOCAL) as (page, _, _): pass
+@pytest.mark.parametrize("path", ["hidden-body.html", "hidden-input.html", "iframe-only.html"])
+async def test_nothing_visible_is_not_loaded(http_server, path):
+    with pytest.raises(ValueError, match="not_loaded"):
+        async with open_page(f"{http_server}/{path}", allow_ips=LOCAL): pass
+async def test_image_only_page_is_scanned(http_server):
+    async with open_page(f"{http_server}/image-only.html", allow_ips=LOCAL) as (page, _, _): pass
+async def test_block_title_must_be_mostly_the_phrase(http_server):
+    with pytest.raises(ValueError, match="not_loaded"):
+        async with open_page(f"{http_server}/blocked-sorry.html", allow_ips=LOCAL): pass
+    async with open_page(f"{http_server}/docs-access-denied.html", allow_ips=LOCAL) as (page, _, _):
+        assert "Real documentation" in await page.inner_text("p")
+@pytest.mark.parametrize("heads,blocked", [
+    (["Attention Required! | Cloudflare", "", ""], True), (["Site", "Sorry, you have been blocked", ""], True),
+    (["Just a moment...", "", ""], True), (["Troubleshoot access denied error messages", "", ""], False),
+    (["Docs", "Why you might see access denied on a file share", ""], False), (["Home", "Welcome", "News"], False)])
+def test_block_phrase_must_be_most_of_the_title_or_heading(heads, blocked):
+    from gate.browser import _is_block_page
+    assert _is_block_page(heads) is blocked

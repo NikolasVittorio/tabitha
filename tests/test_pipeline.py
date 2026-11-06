@@ -312,3 +312,22 @@ async def test_real_browser_pages_that_did_not_load_never_get_a_clean_report(htt
     r = await run_gate("j", f"{http_server}/{path}", scan, walk, None)
     assert r.error == error and (LOGIN_NOTE in r.note) == login
     assert ("No automated" in render_chat(r)) == (error is None)
+
+
+async def test_oversized_html_gets_no_quote_and_the_fixer_is_not_called(monkeypatch):
+    import gate.pipeline as pipeline
+    calls = []
+    monkeypatch.setattr(pipeline, "apply_fixes", lambda *a: calls.append(a) or (a[0], []))
+    big = "<p>" + "x" * 2_000_000 + "</p>"
+    assert await pipeline._quote(big, [F("image-alt")]) == 0
+    async def scan(r): return ScanResult(job_id=r.job_id, findings=[F("image-alt")], tested=[], html=big, error=None)
+    async def walk(r): return WalkResult(job_id=r.job_id, findings=[], focus_path=[], tested=[], error=None)
+    r = await run_gate("j", "https://e.com", scan, walk, None)
+    assert r.fixable == 0 and r.error is None and r.violation_count == 1
+    assert calls == []
+
+async def test_login_note_is_in_the_chat_reply():
+    from gate.report import render_chat
+    async def scan(r): return ScanResult(job_id=r.job_id, findings=[], tested=[], html="<p>", error=None, login=True)
+    async def walk(r): return WalkResult(job_id=r.job_id, findings=[], focus_path=[], tested=[], error=None)
+    assert f"Note: {LOGIN_NOTE}" in render_chat(await run_gate("j", "https://e.com", scan, walk, None))

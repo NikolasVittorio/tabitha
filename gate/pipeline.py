@@ -18,6 +18,7 @@ FixFn = Callable[[FixRequest], Awaitable[FixResult]]
 SKIPPED_NOTE = ("Large files on the page were not loaded ({n} skipped), so anything they add or change on the page "
                 "was not checked")
 LOGIN_NOTE = "This page asks for a login, so only the login page was checked, not what is behind it"
+QUOTE_MAX_HTML = 2_000_000  # the fixer took 98 s on a 3 MB page: no offer above this, the free scan still returns
 FALLBACK_CAP = 8  # ponytail: one rescan per rule, capped; bisect the rule set if pages need more
 
 
@@ -81,6 +82,8 @@ async def _gate(job_id: str, url: str, html: str, findings: list[Finding], scan:
 
 async def _quote(html: str, findings: list[Finding]) -> int:
     """How many issues a paid patch could cover, so nobody pays for nothing. An upper bound: the rescan can drop a fix."""
+    if len(html.encode()) > QUOTE_MAX_HTML:
+        return 0
     todo = [f for f in findings if f.source == "axe" and f.status in ("fail", "needs_author")]
     try:
         _, fixes = await asyncio.to_thread(apply_fixes, html, todo)

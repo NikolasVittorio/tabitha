@@ -28,6 +28,14 @@ class _Handler(SimpleHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+        elif self.path == "/csp-late-render.html":
+            body = (FIXTURES / "late-render.html").read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
         elif self.path.startswith("/status/"):
             body = b"<!DOCTYPE html><title>Sorry</title><h1>Sorry, you cannot see this</h1><a href='/'>Home</a>"
             self.send_response(int(self.path.rsplit("/", 1)[1]))

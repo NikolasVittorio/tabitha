@@ -115,25 +115,64 @@ async def _context(timeout_s, allow_ips, max_bytes, *, main_max_bytes=None):
 # Titles and headings of bot-check and block pages that answer 200. Body text is not matched: an article may say these.
 BLOCK_PHRASES = ("attention required", "you have been blocked", "just a moment", "performing security verification",
                  "verify you are human", "access denied")
+BLOCK_SLACK = 20  # a title or heading is a block page only if it is little more than the phrase
 HTML_TYPES = ("text/html", "application/xhtml+xml")
-HAS_CONTENT_JS = ("document.body && (document.body.innerText.trim() || "
-                  "document.querySelector('a[href],button,input,select,textarea'))")
-HEADLINES_JS = "[document.title, ...['h1', 'h2'].map(t => (document.querySelector(t) || {}).innerText || '')].join(' | ')"
+LOOK_WAIT_S = 3
+# Does anything a person can see sit in the body, open shadow roots included? Frames are not entered: the scanner
+# does not enter them either. Also returns the title and first h1 and h2 for the block-page check.
+LOOK_JS = r"""(() => {
+  const vis = e => !!e && e.checkVisibility({visibilityProperty: true});
+  const shown = 'a[href],button,input:not([type=hidden]),select,textarea,img,svg,canvas,video';
+  const heads = [document.title, ...['h1', 'h2'].map(t => (document.querySelector(t) || {}).innerText || '')];
+  const body = document.body;
+  if (!vis(body)) return {content: false, heads};
+  const stack = [body];
+  while (stack.length) {
+    const n = stack.pop();
+    for (const c of n.childNodes) {
+      if (c.nodeType === 3) {
+        if (c.data.trim() && vis(c.parentElement || n.host)) return {content: true, heads};
+      } else if (c.nodeType === 1) {
+        if (c.matches(shown) && vis(c)) return {content: true, heads};
+        stack.push(c);
+        if (c.shadowRoot) stack.push(c.shadowRoot);
+      }
+    }
+  }
+  return {content: false, heads};
+})()"""
 
 
-async def _check_loaded(page, resp) -> None:
-    """Raises ValueError not_loaded or not_html unless resp is a real HTML page that has something on it."""
+def _is_block_page(heads) -> bool:
+    return any(p in h and len(h) <= len(p) + BLOCK_SLACK for h in (x.strip().lower() for x in heads) for p in BLOCK_PHRASES)
+
+
+def _check_response(resp) -> None:
     if not 200 <= resp.status <= 299:
         raise ValueError("not_loaded")
     kind = resp.headers.get("content-type", "").split(";")[0].strip().lower()
     if kind and kind not in HTML_TYPES:
         raise ValueError("not_html")
-    try:  # scripts may still be rendering: wait a bounded 3 s, well inside the job deadline
-        await page.wait_for_function(HAS_CONTENT_JS, timeout=3000)
-    except PlaywrightError:
-        raise ValueError("not_loaded")
-    heads = (await page.evaluate(HEADLINES_JS)).lower()
-    if any(p in heads for p in BLOCK_PHRASES):
+
+
+async def _check_content(page) -> None:
+    """Scripts may still be rendering, so look for up to 3 s and judge where the page lands. Refuses as blank only
+    when a look at the end answered "empty": a busy or navigating page gives no answer, and the job deadline decides.
+    Polls with evaluate, not wait_for_function: a strict page CSP blocks the latter's polling."""
+    loop = asyncio.get_running_loop()
+    end = loop.time() + LOOK_WAIT_S
+    look = None
+    while True:
+        try:
+            look = await asyncio.wait_for(page.evaluate(LOOK_JS), max(end - loop.time(), 0.1))
+        except (PlaywrightError, TimeoutError):  # navigating or busy: not an answer
+            look = None
+        if (look and look["content"]) or loop.time() >= end:
+            break
+        await asyncio.sleep(0.1)
+    if look is None:
+        return
+    if not look["content"] or _is_block_page(look["heads"]):
         raise ValueError("not_loaded")
 
 
@@ -159,8 +198,10 @@ async def open_page(url, *, allow_ips=frozenset(), timeout_s: float = 30, max_by
             raise ValueError("too_large")
         if blocked and resp is None:
             raise Blocked(blocked[0])
-        await _check_loaded(page, resp)
-        yield page, (await resp.body()).decode("utf-8", "replace"), skipped
+        _check_response(resp)
+        html = (await resp.body()).decode("utf-8", "replace")  # before the wait: a script may navigate away from it
+        await _check_content(page)
+        yield page, html, skipped
 
 
 @asynccontextmanager
