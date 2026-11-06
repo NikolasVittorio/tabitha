@@ -38,6 +38,8 @@ PROFILE = Path(__file__).with_name("profile.md")  # published to Agentverse when
 TALKS_PER_SENDER = 20  # a day; the model costs money and sender addresses are free
 TALKS_TOTAL = 500
 PRECHECKS_PER_SENDER = 10  # a day; each is a free scan, so `fix` can't be a way round the 5 free scans
+# Refused before a real scan, so they cost little. A timeout holds a slot for 30 s, so it stays charged.
+FAST_REFUSALS = frozenset({"not_loaded", "not_html", "too_large", "blocked"})
 BUSY = "Busy — try again in a minute."
 PRECHECK_LIMIT = "Fix request limit reached for today (10 per UTC day); it resets at 00:00 UTC."
 NOTHING_TO_PATCH = ("No automated issues found on {url}, so there is nothing to patch and you have not been charged. "
@@ -135,7 +137,10 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
             quota.refund(sender, today)  # rejected work is not charged
             return "busy"
         async with sem:
-            return with_delta(sender, await run_job(ctx, str(uuid4()), url, False))
+            r = await run_job(ctx, str(uuid4()), url, False)
+        if r.error in FAST_REFUSALS:
+            quota.refund(sender, today)  # nothing was tested
+        return with_delta(sender, r)
 
     async def say(ctx: Context, to: str, text: str, card=None):
         """Every reply carries a card and no EndSessionContent. On ASI:One, replies with that marker and plain replies
@@ -181,8 +186,9 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
                 return await say(ctx, sender, PRECHECK_LIMIT)
             async with sem:  # no await since the locked() check; released before the payment request
                 r = await run_job(ctx, str(uuid4()), action.url, False)
+            if r.error in FAST_REFUSALS:
+                prechecks.refund(sender, today)
             if r.error:
-                prechecks.refund(sender, today)  # a page that fails to load is not the sender's doing
                 return await say(ctx, sender, render_chat(r, agents=sub_addrs))
             if not r.violation_count:
                 return await say(ctx, sender, "\n\n".join(x for x in (NOTHING_TO_PATCH.format(url=r.url), r.note) if x))

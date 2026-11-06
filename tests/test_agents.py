@@ -7,7 +7,7 @@ from uagents_core.contrib.protocols.chat import ChatMessage, TextContent
 
 import agents.subagents as subagents
 from agents.lead import BUSY, make_lead
-from gate.chat import PAY_FIX, USAGE
+from gate.chat import PAY_FIX, QUOTA_REPLY, USAGE
 from gate.talk import FALLBACK
 from gate.models import A11yCheckRequest, FixRequest, Report, ScanRequest, ScanResult, WalkRequest, WalkResult
 
@@ -324,3 +324,66 @@ async def test_subagents_pass_the_page_did_not_load_codes_through(make, req, cod
     ctx = Ctx()
     await handler(make("seed", LEAD), type(req))(ctx, LEAD, req)
     assert ctx.sent[-1][1].error == code
+
+
+def _refused(ctx, lead, code):
+    """Answers each scan and walk request with this error code."""
+    async def answer(to, msg):
+        if isinstance(msg, ScanRequest):
+            await handler(lead, ScanResult)(ctx, to, ScanResult(job_id=msg.job_id, findings=[], tested=[], html=None, error=code))
+        elif isinstance(msg, WalkRequest):
+            await handler(lead, WalkResult)(ctx, to, WalkResult(job_id=msg.job_id, findings=[], focus_path=[], tested=[], error=code))
+    return answer
+
+
+class Answering(Ctx):
+    answer = None
+
+    async def send(self, to, msg):
+        await super().send(to, msg)
+        if self.answer and to in SUBS.values():
+            asyncio.create_task(self.answer(to, msg))
+
+
+def chat_check(lead, ctx, sender="me"):
+    on_chat = lead._signed_message_handlers[Model.build_schema_digest(ChatMessage)]
+    return on_chat(ctx, sender, ChatMessage(content=[TextContent(text="check https://e.com")]))
+
+
+def test_the_fast_refusals_are_exactly_these():
+    from agents.lead import FAST_REFUSALS
+    assert FAST_REFUSALS == {"not_loaded", "not_html", "too_large", "blocked"}
+
+
+@pytest.mark.parametrize("code", ["not_loaded", "not_html", "too_large", "blocked"])
+async def test_refused_pages_do_not_use_up_free_scans_in_chat(code):
+    lead, ctx = make_lead("seed", SUBS), Answering()
+    ctx.answer = _refused(ctx, lead, code)
+    for _ in range(5):
+        await chat_check(lead, ctx)
+        assert ctx.sent[-1][1].text() != QUOTA_REPLY
+    ctx.answer = None
+    before = len(subs_sent(ctx))
+    job = asyncio.create_task(chat_check(lead, ctx))  # the sixth still runs
+    await spin()
+    assert len(subs_sent(ctx)) == before + 2
+    job.cancel()
+
+
+@pytest.mark.parametrize("code", ["not_loaded", "not_html", "too_large", "blocked"])
+async def test_refused_pages_do_not_use_up_free_scans_when_typed(code):
+    lead, ctx = make_lead("seed", SUBS), Answering()
+    ctx.answer = _refused(ctx, lead, code)
+    for _ in range(6):  # more than a day's quota
+        await typed(lead)(ctx, "me", req())
+        assert ctx.sent[-1][1].error == code
+
+
+@pytest.mark.parametrize("code", ["timeout", "internal_error"])
+async def test_other_errors_use_up_a_free_scan(code):
+    lead, ctx = make_lead("seed", SUBS), Answering()
+    ctx.answer = _refused(ctx, lead, code)
+    for _ in range(5):
+        await chat_check(lead, ctx)
+    await chat_check(lead, ctx)
+    assert ctx.sent[-1][1].text() == QUOTA_REPLY

@@ -519,12 +519,22 @@ def test_readme_fix_usage_mentions_the_check_before_payment_and_not_a_stale_clai
     assert "Nothing runs until it is paid" not in text
 
 
-async def test_a_failed_check_does_not_use_the_fix_request_limit(monkeypatch):
-    stub_gate(monkeypatch, precheck=lambda j, u: build_report(j, u, [], [], error="timeout"))
+@pytest.mark.parametrize("code", ["not_loaded", "not_html", "too_large", "blocked"])
+async def test_a_fast_refusal_does_not_use_the_fix_request_limit(monkeypatch, code):
+    stub_gate(monkeypatch, precheck=lambda j, u: build_report(j, u, [], [], error=code))
     _, on_chat, _, ctx = setup()
     for _ in range(lead_mod.PRECHECKS_PER_SENDER + 2):
         await say_fix(on_chat, ctx)
     assert lead_mod.PRECHECK_LIMIT not in replies(ctx) and len(replies(ctx)) == lead_mod.PRECHECKS_PER_SENDER + 2
+
+
+async def test_a_timed_out_check_uses_the_fix_request_limit(monkeypatch):
+    stub_gate(monkeypatch, precheck=lambda j, u: build_report(j, u, [], [], error="timeout"))
+    _, on_chat, _, ctx = setup()
+    for _ in range(lead_mod.PRECHECKS_PER_SENDER + 1):
+        await say_fix(on_chat, ctx)
+    assert replies(ctx)[-1] == lead_mod.PRECHECK_LIMIT
+    assert lead_mod.PRECHECK_LIMIT not in replies(ctx)[:-1]
 
 
 async def test_no_issues_reply_keeps_the_scan_note(monkeypatch):
