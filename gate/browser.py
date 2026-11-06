@@ -199,8 +199,14 @@ async def open_page(url, *, allow_ips=frozenset(), timeout_s: float = 30, max_by
         if blocked and resp is None:
             raise Blocked(blocked[0])
         _check_response(resp)
-        html = (await resp.body()).decode("utf-8", "replace")  # before the wait: a script may navigate away from it
+        read_at = page.url
+        try:
+            body = await resp.body()  # before the wait: a script may navigate away from it
+        except PlaywrightError:  # it already has, and the browser dropped the body
+            body = None
         await _check_content(page)
+        # The scan sees where the page landed, so a patch and its signed hash must describe that page, not the stub.
+        html = await page.content() if body is None or page.url != read_at else body.decode("utf-8", "replace")
         yield page, html, skipped
 
 

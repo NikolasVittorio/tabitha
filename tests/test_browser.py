@@ -168,11 +168,17 @@ async def test_other_files_keep_the_smaller_limit(http_server):
 async def test_late_rendering_page_under_a_strict_csp_still_opens(http_server):
     async with open_page(f"{http_server}/csp-late-render.html", allow_ips=LOCAL) as (page, _, _):
         assert "Rendered late" in await page.inner_text("body")
-@pytest.mark.parametrize("path", ["js-redirect.html", "meta-refresh.html"])
-async def test_page_that_redirects_itself_is_judged_where_it_lands(http_server, path):
+@pytest.mark.parametrize("path", ["js-redirect.html", "meta-refresh.html", "js-redirect-instant.html",
+                                  "js-redirect-replace.html", "js-redirect-onload.html", "meta-refresh-instant.html"])
+async def test_page_that_redirects_itself_gives_the_landing_pages_html(http_server, path):
     async with open_page(f"{http_server}/{path}", allow_ips=LOCAL) as (page, html, _):
         assert page.url.endswith("clean.html")
-        assert "Hop" in html
+        assert "<title>Clean page</title>" in html and "Hop" not in html
+async def test_page_that_stays_put_gives_its_source_not_the_rendered_page(http_server):
+    from pathlib import Path
+    source = (Path(__file__).parent / "fixtures" / "late-render.html").read_bytes().decode()
+    async with open_page(f"{http_server}/late-render.html", allow_ips=LOCAL) as (page, html, _):
+        assert html == source
 async def test_busy_page_with_real_text_is_not_refused_as_blank(http_server):
     async with open_page(f"{http_server}/busy.html", allow_ips=LOCAL) as (page, html, _):
         assert "Real text is already here" in html
