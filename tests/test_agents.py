@@ -276,3 +276,19 @@ async def test_walker_counts_skipped_files(monkeypatch):
 async def test_check_protocol_in_manifest():  # async: Agent() needs a running loop
     lead = make_lead("seed", SUBS)
     assert "tabitha_check" in [p.name for p in lead.protocols.values()]
+
+
+async def test_log_posts_times_each_send(monkeypatch, capsys):
+    from types import SimpleNamespace
+    from uagents import communication
+    from agents.lead import log_posts
+
+    async def fake(envelope, endpoints, sync=False):
+        return SimpleNamespace(status="DELIVERED")
+
+    monkeypatch.setattr(communication, "send_exchange_envelope", fake)
+    log_posts()
+    env = SimpleNamespace(payload="abcd", schema_digest="model:abc")
+    result = await communication.send_exchange_envelope(envelope=env, endpoints=["e"], sync=False)
+    assert result.status == "DELIVERED"
+    assert "post DELIVERED in 0.0s bytes=4 digest=model:abc" in capsys.readouterr().out

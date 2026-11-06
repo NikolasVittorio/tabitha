@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from uagents import Agent, Bureau, Context, Protocol
+from uagents import Agent, Bureau, Context, Protocol, communication
 from uagents_core.contrib.protocols.chat import (
     ChatAcknowledgement, ChatMessage, TextContent, chat_protocol_spec,
 )
@@ -297,9 +297,26 @@ def make_lead(seed: str, sub_addrs: dict[str, str], get_tx=fetch_get_tx) -> Agen
     return agent
 
 
+def log_posts() -> None:
+    """Times each POST alone. The "reply" log line also counts time queued behind earlier sends, and stops at the
+    30 s send timeout while the POST keeps going. ponytail: replaces a library global; delete once the webhook stall
+    is explained."""
+    post = communication.send_exchange_envelope
+
+    async def timed(envelope, endpoints, sync=False):
+        started = time.monotonic()
+        result = await post(envelope, endpoints, sync)
+        print(f"post {getattr(result, 'status', 'sync')} in {time.monotonic() - started:.1f}s "
+              f"bytes={len(envelope.payload or '')} digest={envelope.schema_digest[:16]}", flush=True)
+        return result
+
+    communication.send_exchange_envelope = timed
+
+
 def main() -> None:
     # Seeds come from the environment only (python-dotenv is not installed; export them or
     # load .env in your shell). Seeds are never logged.
+    log_posts()
     lead_addr = Identity.from_seed(os.environ["LEAD_SEED"], 0).address  # same derivation Agent uses
     subs = {"scan": make_scanner(os.environ["SCANNER_SEED"], lead_addr),
             "walk": make_walker(os.environ["WALKER_SEED"], lead_addr),
